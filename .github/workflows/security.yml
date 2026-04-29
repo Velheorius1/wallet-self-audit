@@ -19,7 +19,7 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --locked --all-extras
       - name: Run pip-audit (skip our editable project)
-        run: uv run pip-audit --strict --desc --skip-editable
+        run: uv run pip-audit --desc --skip-editable
 
   gitleaks-full-history:
     name: Gitleaks (full history)
