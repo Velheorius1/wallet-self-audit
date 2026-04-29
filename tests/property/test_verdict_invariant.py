@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import string
 
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from wallet_self_audit.verdict import VerdictWithoutKey
-
 
 _STATUS_FINDING = [
     ("SAFE", "none"),
@@ -45,9 +45,7 @@ def test_valid_verdict_round_trips_through_json(
         status=status,  # type: ignore[arg-type]
         finding=finding,  # type: ignore[arg-type]
         confidence=confidence,
-        key_fingerprint=None
-        if status == "SAFE"
-        else "0123456789abcdef",
+        key_fingerprint=None if status == "SAFE" else "0123456789abcdef",
         recommendation="Test recommendation.",
         evidence_refs=txids_flat,
         audit_id="00000000-0000-0000-0000-000000000000",

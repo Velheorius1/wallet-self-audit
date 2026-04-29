@@ -23,7 +23,7 @@ from __future__ import annotations
 import ctypes
 import gc
 from types import TracebackType
-from typing import NoReturn
+from typing import NoReturn, SupportsIndex
 
 
 class Secret:
@@ -39,13 +39,13 @@ class Secret:
         - ``__repr__`` shows metadata only — never bytes.
     """
 
-    __slots__ = ("_buf", "_addr", "_n", "_burned")
+    __slots__ = ("_addr", "_buf", "_burned", "_n")
 
     # No-hash: prevents Python's optional caching of hash values.
     __hash__ = None  # type: ignore[assignment]
 
     def __init__(self, n: int) -> None:
-        if not isinstance(n, int) or n <= 0:
+        if not isinstance(n, int) or n <= 0:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(f"Secret size must be a positive int, got {n!r}")
         self._n = n
         self._buf = bytearray(n)
@@ -93,7 +93,7 @@ class Secret:
     def __reduce__(self) -> NoReturn:
         raise TypeError("Secret cannot be pickled")
 
-    def __reduce_ex__(self, protocol: int) -> NoReturn:
+    def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
         raise TypeError("Secret cannot be pickled")
 
     # deepcopy would propagate the secret — refuse. Shallow copy is also

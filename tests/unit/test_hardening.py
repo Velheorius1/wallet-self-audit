@@ -8,7 +8,6 @@ functions directly and use subprocesses where we need the real env.
 from __future__ import annotations
 
 import resource
-import subprocess
 import sys
 
 import pytest

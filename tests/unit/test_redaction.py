@@ -17,15 +17,13 @@ from wallet_self_audit.logging.redaction import (
 # allowlist_filter
 # ---------------------------------------------------------------------------
 def test_allowlist_drops_unknown_field() -> None:
-    out = allowlist_filter(
-        None, "info", {"event": "x", "address": "bc1q...", "privkey": "secret"}
-    )
+    out = allowlist_filter(None, "info", {"event": "x", "address": "bc1q...", "privkey": "secret"})
     assert "privkey" not in out
     assert out["address"] == "bc1q..."
 
 
 def test_allowlist_keeps_all_allowed_fields() -> None:
-    sample = {f: "v" for f in ALLOWLIST_FIELDS}
+    sample = dict.fromkeys(ALLOWLIST_FIELDS, "v")
     out = allowlist_filter(None, "info", sample)
     assert set(out.keys()) == ALLOWLIST_FIELDS
 
@@ -38,9 +36,7 @@ def test_allowlist_empty_dict() -> None:
 # suspect_hex_scrub
 # ---------------------------------------------------------------------------
 def test_scrub_redacts_64hex_in_non_txid_field() -> None:
-    out = suspect_hex_scrub(
-        None, "info", {"recommendation": "data " + "a" * 64 + " trailing"}
-    )
+    out = suspect_hex_scrub(None, "info", {"recommendation": "data " + "a" * 64 + " trailing"})
     assert "[REDACTED:HEX64]" in out["recommendation"]
     assert "a" * 64 not in out["recommendation"]
 

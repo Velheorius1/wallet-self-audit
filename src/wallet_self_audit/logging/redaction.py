@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Final
+from collections.abc import MutableMapping
+from typing import Final
 
 import structlog
 
@@ -109,41 +110,43 @@ class RedactionFailClosed(RuntimeError):
 
 
 def allowlist_filter(
-    _logger: object, _method: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    _logger: object, _method: str, event_dict: MutableMapping[str, object]
+) -> MutableMapping[str, object]:
     """Drop any field not in ``ALLOWLIST_FIELDS``."""
     return {k: v for k, v in event_dict.items() if k in ALLOWLIST_FIELDS}
 
 
 def suspect_hex_scrub(
-    _logger: object, _method: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    _logger: object, _method: str, event_dict: MutableMapping[str, object]
+) -> MutableMapping[str, object]:
     """Replace suspect hex/key-like patterns inside string values with [REDACTED].
 
     Non-string values are passed through unchanged. Values that are entirely
     suspect get replaced; substrings inside longer text get the pattern
     replaced with ``[REDACTED]``.
     """
-    redacted: dict[str, Any] = {}
+    redacted: dict[str, object] = {}
     for k, v in event_dict.items():
         if isinstance(v, str):
-            v = SUSPECT_HEX_LONG.sub("[REDACTED:LONG-HEX]", v)
+            new_v = SUSPECT_HEX_LONG.sub("[REDACTED:LONG-HEX]", v)
             # 64-hex: ONLY redact if the field name doesn't legitimately
             # contain 64-hex (e.g. ``txid``, evidence_refs). For the allowlist
             # we already dropped most fields; remaining fields like ``address``
             # never have 64-hex.
             if k not in ("txid", "evidence_refs", "audit_id"):
-                v = SUSPECT_HEX_64.sub("[REDACTED:HEX64]", v)
-            v = SUSPECT_BIP39.sub("[REDACTED:BIP39]", v)
-            v = SUSPECT_WIF.sub("[REDACTED:WIF]", v)
-            v = SUSPECT_XPRV.sub("[REDACTED:XPRV]", v)
-        redacted[k] = v
+                new_v = SUSPECT_HEX_64.sub("[REDACTED:HEX64]", new_v)
+            new_v = SUSPECT_BIP39.sub("[REDACTED:BIP39]", new_v)
+            new_v = SUSPECT_WIF.sub("[REDACTED:WIF]", new_v)
+            new_v = SUSPECT_XPRV.sub("[REDACTED:XPRV]", new_v)
+            redacted[k] = new_v
+        else:
+            redacted[k] = v
     return redacted
 
 
 def fail_closed_guard(
-    _logger: object, _method: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    _logger: object, _method: str, event_dict: MutableMapping[str, object]
+) -> MutableMapping[str, object]:
     """Final defense: raise if ANYTHING in the event_dict still matches a
     suspect pattern after the allowlist + scrub.
 
@@ -155,28 +158,21 @@ def fail_closed_guard(
         if isinstance(v, str):
             blob_parts.append(v)
         elif isinstance(v, (list, tuple)):
-            blob_parts.extend(str(x) for x in v)
+            for item in v:  # pyright: ignore[reportUnknownVariableType]
+                blob_parts.append(str(item))  # pyright: ignore[reportUnknownArgumentType]
     blob = " ".join(blob_parts)
 
     # 64-hex check: skip if we're dealing with allowlisted hex-bearing fields
     # (txid, audit_id) — those legitimately contain 64-hex. We instead check
     # bip39, wif, xprv, long-hex which are never legitimate.
     if SUSPECT_HEX_LONG.search(blob):
-        raise RedactionFailClosed(
-            "fail_closed_guard: 128+ char hex string survived filtering"
-        )
+        raise RedactionFailClosed("fail_closed_guard: 128+ char hex string survived filtering")
     if SUSPECT_BIP39.search(blob):
-        raise RedactionFailClosed(
-            "fail_closed_guard: BIP-39 mnemonic pattern survived filtering"
-        )
+        raise RedactionFailClosed("fail_closed_guard: BIP-39 mnemonic pattern survived filtering")
     if SUSPECT_WIF.search(blob):
-        raise RedactionFailClosed(
-            "fail_closed_guard: WIF private key pattern survived filtering"
-        )
+        raise RedactionFailClosed("fail_closed_guard: WIF private key pattern survived filtering")
     if SUSPECT_XPRV.search(blob):
-        raise RedactionFailClosed(
-            "fail_closed_guard: xprv extended private key survived filtering"
-        )
+        raise RedactionFailClosed("fail_closed_guard: xprv extended private key survived filtering")
     return event_dict
 
 

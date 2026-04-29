@@ -53,8 +53,7 @@ def _refuse_unsafe_environments() -> None:
         )
     if "IPython" in sys.modules:
         raise HardeningRefused(
-            "Refusing to run inside IPython (caches '_', '__', '___'). "
-            "Run from a regular terminal."
+            "Refusing to run inside IPython (caches '_', '__', '___'). Run from a regular terminal."
         )
 
     # 2. python -i — interactive REPL after script ends.
@@ -66,9 +65,7 @@ def _refuse_unsafe_environments() -> None:
 
     # 3. Subinterpreters (PEP 684) — heap sharing.
     if "_xxsubinterpreters" in sys.modules or "_interpreters" in sys.modules:
-        raise HardeningRefused(
-            "Refusing to run under a subinterpreter (heap may be shared)."
-        )
+        raise HardeningRefused("Refusing to run under a subinterpreter (heap may be shared).")
 
 
 def _disable_heap_snapshotting() -> None:

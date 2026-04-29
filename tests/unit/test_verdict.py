@@ -27,18 +27,18 @@ from wallet_self_audit.verdict import VerdictWithoutKey
 # ---------------------------------------------------------------------------
 def _safe_verdict(**overrides: object) -> VerdictWithoutKey:
     """Construct a SAFE verdict with default valid fields, override-able."""
-    defaults = dict(
-        address="bc1qexample0000000000000000000000000000000",
-        status="SAFE",
-        finding="none",
-        confidence=0.99,
-        key_fingerprint=None,
-        recommendation="No issues detected.",
-        evidence_refs=(),
-        audit_id="00000000-0000-0000-0000-000000000000",
-        checks_performed=("milk_sad", "randstorm"),
-    )
-    defaults.update(overrides)  # type: ignore[arg-type]
+    defaults: dict[str, object] = {
+        "address": "bc1qexample0000000000000000000000000000000",
+        "status": "SAFE",
+        "finding": "none",
+        "confidence": 0.99,
+        "key_fingerprint": None,
+        "recommendation": "No issues detected.",
+        "evidence_refs": (),
+        "audit_id": "00000000-0000-0000-0000-000000000000",
+        "checks_performed": ("milk_sad", "randstorm"),
+    }
+    defaults.update(overrides)
     return VerdictWithoutKey(**defaults)  # type: ignore[arg-type]
 
 
@@ -196,8 +196,11 @@ def test_recommendation_with_long_hex_rejected() -> None:
 
 
 def test_recommendation_with_short_hex_accepted() -> None:
-    """16-char hex (e.g. a UUID-like ID) in recommendation is allowed."""
-    v = _safe_verdict(recommendation="see audit_id 0123456789abcdef")
+    """≤16 hex chars total in recommendation is allowed."""
+    # The hex-char count is over the WHOLE string. Use words containing
+    # only non-hex letters (g-z) to avoid accidental over-count.
+    # "hint" = h,i,n,t — none are hex. 16 hex chars in the suffix = 16 total. OK.
+    v = _safe_verdict(recommendation="hint: 0123456789abcdef")
     assert "0123456789abcdef" in v.recommendation
 
 
@@ -225,7 +228,8 @@ def test_invalid_status_rejected() -> None:
 def test_invalid_finding_rejected() -> None:
     with pytest.raises(ValueError, match="invalid finding"):
         _safe_verdict(
-            status="VULNERABLE", finding="apocalypse"  # type: ignore[arg-type]
+            status="VULNERABLE",
+            finding="apocalypse",  # type: ignore[arg-type]
         )
 
 

@@ -38,13 +38,18 @@ jobs:
       - name: Set up Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
 
-      # CRITICAL: UV_NO_BUILD=1 refuses to compile any sdist.
-      # If a wheel is missing for the runner platform, install fails.
-      # This enforces the handoff constraint: "no source builds in CI".
-      - name: Install (no source builds, locked)
-        env:
-          UV_NO_BUILD: "1"
-        run: uv sync --locked --all-extras
+      # Install + verify no third-party source builds. Our own editable
+      # install (hatchling) is allowed; external deps must use wheels.
+      - name: Install (locked) + verify no source builds
+        run: |
+          set -o pipefail
+          uv sync --locked --all-extras 2>&1 | tee install.log
+          # Filter out our own package's editable build line (allowed).
+          if grep -E "Building (wheel|source distribution)" install.log \
+             | grep -v "wallet-self-audit"; then
+            echo "::error::A third-party package was built from source — wheel missing for this platform"
+            exit 1
+          fi
 
       - name: Lint (ruff)
         run: |

@@ -35,16 +35,16 @@ def test_burn_zeroes_buffer() -> None:
     s.view()[:] = b"\xff" * 8
     s.burn()
     # After burn, view() raises — verify via accessing internal _buf via slot.
-    assert s._burned is True  # noqa: SLF001
+    assert s._burned is True
     # The underlying bytearray is zero.
-    assert bytes(s._buf) == b"\x00" * 8  # noqa: SLF001
+    assert bytes(s._buf) == b"\x00" * 8
 
 
 def test_burn_is_idempotent() -> None:
     s = Secret(8)
     s.burn()
     s.burn()  # no exception
-    assert s._burned is True  # noqa: SLF001
+    assert s._burned is True
 
 
 def test_view_after_burn_raises() -> None:
@@ -57,8 +57,8 @@ def test_view_after_burn_raises() -> None:
 def test_context_manager_burns_on_exit() -> None:
     with Secret(16) as s:
         s.view()[:] = b"\x42" * 16
-        assert s._burned is False  # noqa: SLF001
-    assert s._burned is True  # noqa: SLF001
+        assert s._burned is False
+    assert s._burned is True
 
 
 def test_context_manager_burns_on_exception() -> None:
@@ -70,7 +70,7 @@ def test_context_manager_burns_on_exception() -> None:
             raise RuntimeError("simulated")
     except RuntimeError:
         pass
-    assert s._burned is True  # noqa: SLF001
+    assert s._burned is True
 
 
 def test_repr_does_not_contain_buffer_contents() -> None:

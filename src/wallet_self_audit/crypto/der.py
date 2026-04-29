@@ -19,9 +19,7 @@ References:
 from __future__ import annotations
 
 # secp256k1 curve order N.
-SECP256K1_N = (
-    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-)
+SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 SECP256K1_N_HALF = SECP256K1_N // 2
 
 
@@ -41,7 +39,7 @@ def parse_der(sig: bytes) -> tuple[int, int]:
     Raises:
         DERParseError: on any encoding violation.
     """
-    if not isinstance(sig, (bytes, bytearray, memoryview)):
+    if not isinstance(sig, (bytes, bytearray, memoryview)):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise DERParseError(f"sig must be bytes-like, got {type(sig).__name__}")
     sig = bytes(sig)
 
@@ -55,8 +53,7 @@ def parse_der(sig: bytes) -> tuple[int, int]:
     # Length of the SEQUENCE body.
     if seq_len + 2 != len(sig):
         raise DERParseError(
-            f"SEQUENCE length mismatch: declared {seq_len}, "
-            f"available {len(sig) - 2}"
+            f"SEQUENCE length mismatch: declared {seq_len}, available {len(sig) - 2}"
         )
 
     # First INTEGER: r.
@@ -77,18 +74,14 @@ def parse_der(sig: bytes) -> tuple[int, int]:
     if s_tag_idx >= len(sig):
         raise DERParseError("missing s integer")
     if sig[s_tag_idx] != 0x02:
-        raise DERParseError(
-            f"expected INTEGER tag 0x02 for s, got 0x{sig[s_tag_idx]:02x}"
-        )
+        raise DERParseError(f"expected INTEGER tag 0x02 for s, got 0x{sig[s_tag_idx]:02x}")
     s_len = sig[s_tag_idx + 1]
     if s_len == 0:
         raise DERParseError("s length is zero")
     s_start = s_tag_idx + 2
     s_end = s_start + s_len
     if s_end != len(sig):
-        raise DERParseError(
-            f"trailing bytes after s: expected end at {s_end}, got {len(sig)}"
-        )
+        raise DERParseError(f"trailing bytes after s: expected end at {s_end}, got {len(sig)}")
     s_bytes = sig[s_start:s_end]
     _validate_integer_encoding(s_bytes, "s")
 
@@ -96,9 +89,9 @@ def parse_der(sig: bytes) -> tuple[int, int]:
     s = int.from_bytes(s_bytes, "big")
 
     if not 1 <= r < SECP256K1_N:
-        raise DERParseError(f"r out of range [1, N-1]")
+        raise DERParseError("r out of range [1, N-1]")
     if not 1 <= s < SECP256K1_N:
-        raise DERParseError(f"s out of range [1, N-1]")
+        raise DERParseError("s out of range [1, N-1]")
 
     return r, s
 

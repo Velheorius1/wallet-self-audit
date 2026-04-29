@@ -11,8 +11,8 @@ them through a custom proof that skips parse_challenge.
 
 from __future__ import annotations
 
-import base64
 import json
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -65,17 +65,19 @@ def test_corpus_verify_via_bip322(monkeypatch) -> None:
     for v in data["vectors"]:
         addr = v["address"]
         msg = v["message"]
-        sig_bytes = base64.b64decode(v["signature"])
+        sig_b64 = v["signature"]
+        # API: verify_simple_encoded returns None on valid, raises on invalid.
         try:
-            verified = bool(bip322.verify_simple(addr, msg, sig_bytes))
+            bip322.verify_simple_encoded(addr, msg, sig_b64)
+            verified = True
+        except bip322.VerificationError:
+            verified = False
         except Exception as exc:
             verified = False
             failures.append(f"{v['source']}: {addr} -> exception {exc!r}")
             continue
         if verified != v["expected"]:
-            failures.append(
-                f"{v['source']}: {addr} -> got {verified}, expected {v['expected']}"
-            )
+            failures.append(f"{v['source']}: {addr} -> got {verified}, expected {v['expected']}")
 
     if failures:
         pytest.fail("\n".join(failures))
@@ -127,16 +129,16 @@ def test_parse_malformed_challenge_raises(bad_challenge: str) -> None:
 
 def test_expired_challenge_detected() -> None:
     """A challenge older than 24h must be flagged expired."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    issued = datetime.now(timezone.utc) - timedelta(hours=25)
+    issued = datetime.now(UTC) - timedelta(hours=25)
     assert is_challenge_expired(issued)
 
 
 def test_fresh_challenge_not_expired() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    issued = datetime.now(timezone.utc)
+    issued = datetime.now(UTC)
     assert not is_challenge_expired(issued)
 
 
@@ -167,12 +169,10 @@ def test_classify_address(addr: str, expected: str) -> None:
 # ---------------------------------------------------------------------------
 def test_proof_with_expired_challenge_raises(tmp_path) -> None:
     """A proof referencing an expired challenge raises before calling bip322."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     addr = "bc1qexample"
-    expired_ts = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(
-        timespec="seconds"
-    )
+    expired_ts = (datetime.now(UTC) - timedelta(hours=25)).isoformat(timespec="seconds")
     expired_challenge = f"wallet-self-audit::v1::{addr}::{expired_ts}::{'a' * 64}"
 
     proof = BIP322Proof(

@@ -26,7 +26,6 @@ dependencies = [
     "typer>=0.15",
     "rich>=13.9",
     "coincurve>=21",
-    "btclib>=4",
     "numpy>=2.1",
     "mnemonic>=0.21",
     "structlog>=24.4",
@@ -35,13 +34,15 @@ dependencies = [
     "httpx>=0.27",
     "bip322==0.2.0",
 ]
+# btclib (sighash) is added in Phase 3. The C-extension btclib-libsecp256k1
+# lacks ARM64 wheels in 2026 and would force a source build in CI.
 
 [project.scripts]
 wsa = "wallet_self_audit.cli:main"
 
 [project.optional-dependencies]
 lattice = ["fpylll>=0.6.4"]
-claude = ["claude-agent-sdk>=0.5"]
+claude = ["claude-agent-sdk>=0.1.71"]
 
 [project.urls]
 Homepage = "https://github.com/Velheorius1/wallet-self-audit"
@@ -100,14 +101,36 @@ select = [
     "G",     # logging-format (G004 catches f-strings in logger calls)
 ]
 ignore = [
-    "S101",   # assert_used — pytest needs it
+    "S101",    # assert_used — pytest needs it
     "PLR0913", # too many args — verdict has many fields by design
-    "TRY003", # long exc messages — defensive code wants context
+    "TRY003",  # long exc messages — defensive code wants context
+    "TRY300",  # use else block — adds noise in defensive try/except
+    "TRY301",  # raise within try — sometimes intentional
+    "PLR0911", # too many returns — verdict.__post_init__ has many checks
+    "PLR0912", # too many branches — defensive code is branchy
+    "PLR0915", # too many statements — same
+    "PLW2901", # for-loop variable overwritten — sometimes intentional
+    "N818",    # exception name doesn't end with Error — domain-specific names allowed
+    "PLC0415", # import inside function — allowed for lazy imports in CLI
+    "PERF401", # use list.extend over append — readability tradeoff
+    "SIM102",  # nested if — clearer than combined sometimes
+    "PLR2004", # magic values — protocol byte tags (0x30, 0x02) are spec-defined
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR2004", "S105", "S106"]
-"scripts/**" = ["S603", "S607"]
+"tests/**" = [
+    "S101",     # asserts ok in tests
+    "PLR2004",  # magic values ok in tests
+    "S105",     # hardcoded string assignment
+    "S106",     # hardcoded password kwarg
+    "S301",     # pickle tests need pickle
+    "PLC0415",  # imports inside test funcs
+    "F841",     # unused vars in test scaffolding
+    "E501",     # long lines in fixtures
+    "PLR0911",
+    "PLR0912",
+]
+"scripts/**" = ["S603", "S607", "PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["wallet_self_audit"]

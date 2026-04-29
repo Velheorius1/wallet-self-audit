@@ -96,8 +96,7 @@ def init() -> None:
         console.print(f"  [green]✓[/green] {config_file} (default config)")
 
     console.print(
-        "\n[bold green]Done.[/bold green] Run [cyan]wsa doctor[/cyan] to "
-        "verify your install."
+        "\n[bold green]Done.[/bold green] Run [cyan]wsa doctor[/cyan] to verify your install."
     )
 
 
@@ -113,7 +112,7 @@ def doctor() -> None:
     table.add_column("Detail")
 
     # 1. Hardening status (set at package import).
-    harden = wallet_self_audit._HARDEN_STATUS  # noqa: SLF001
+    harden = wallet_self_audit._HARDEN_STATUS  # pyright: ignore[reportPrivateUsage]
     table.add_row(
         "Core dumps disabled",
         _ok(harden.get("core_dumps_disabled", False)),
@@ -128,14 +127,12 @@ def doctor() -> None:
     )
 
     # 2. Python + platform.
-    table.add_row(
-        "Python", _ok(True), f"{sys.version.split()[0]} on {platform.platform()}"
-    )
+    table.add_row("Python", _ok(True), f"{sys.version.split()[0]} on {platform.platform()}")
 
     # 3. Critical wheels (importable, presumably ARM64-native).
+    # btclib is added in Phase 3 (sighash); see pyproject.toml note.
     for mod_name, label in [
         ("coincurve", "coincurve (ARM64 wheel)"),
-        ("btclib", "btclib"),
         ("bip322", "bip322 (rust-bitcoin wrapper)"),
         ("structlog", "structlog"),
         ("typer", "typer"),
@@ -168,9 +165,7 @@ def doctor() -> None:
         except RedactionFailClosed:
             ok_guard = True
 
-        table.add_row(
-            "Redaction allowlist", _ok(True), "drops unknown fields"
-        )
+        table.add_row("Redaction allowlist", _ok(True), "drops unknown fields")
         table.add_row(
             "Redaction fail-closed",
             _ok(ok_guard),
@@ -179,7 +174,8 @@ def doctor() -> None:
 
         # Test 3: suspect_hex_scrub redacts.
         e3 = suspect_hex_scrub(None, "info", {"text": "x" + "a" * 64 + "y"})
-        ok_scrub = "[REDACTED:HEX64]" in e3.get("text", "")
+        scrubbed = e3.get("text", "")
+        ok_scrub = isinstance(scrubbed, str) and "[REDACTED:HEX64]" in scrubbed
         table.add_row(
             "Redaction hex scrub",
             _ok(ok_scrub),
@@ -220,16 +216,12 @@ def doctor() -> None:
             table.add_row(
                 "BIP-322 corpus",
                 _ok(n >= 5),
-                f"{corpus_path.name}: {n} vectors"
-                if n >= 5
-                else f"only {n} vectors (need ≥5)",
+                f"{corpus_path.name}: {n} vectors" if n >= 5 else f"only {n} vectors (need ≥5)",
             )
         except Exception as exc:
             table.add_row("BIP-322 corpus", _ok(False), f"error: {exc}")
     else:
-        table.add_row(
-            "BIP-322 corpus", _ok(False), "tests/fixtures/bip322/corpus.json missing"
-        )
+        table.add_row("BIP-322 corpus", _ok(False), "tests/fixtures/bip322/corpus.json missing")
 
     # 7. Sentinel file presence (CI gate).
     sentinel_path = _find_sentinel()
@@ -267,7 +259,7 @@ def _default_config_toml() -> str:
         "# wallet-self-audit configuration\n"
         "# This file is created by `wsa init`. Edit with `wsa config edit`.\n\n"
         "[audit]\n"
-        '# Default vectors for `prng-audit` (comma-separated).\n'
+        "# Default vectors for `prng-audit` (comma-separated).\n"
         'default_prng_vectors = ["milk_sad", "randstorm", "brainwallet"]\n\n'
         "[network]\n"
         "# Refuse to run with network interfaces up.\n"

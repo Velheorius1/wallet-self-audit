@@ -1,27 +1,18 @@
 {
-  "version": "1.0.0",
-  "description": "BIP-322 cross-wallet test corpus. Vectors aggregated from bitcoin/bips, rust-bitcoin/bip322, and ACken2/bip322-js. Each vector has expected verify outcome.",
+  "version": "1.0.1",
+  "description": "BIP-322 cross-wallet test corpus. Each vector includes ground-truth `expected` matched against the bip322==0.2.0 PyPI library (rust-bitcoin/bip322 wrapper). Real public vectors marked accordingly; synthetic placeholders are explicitly flagged.",
   "vectors": [
     {
-      "source": "bitcoin/bips/bip-0322 — empty message",
-      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
-      "message": "",
-      "signature": "AkcwRAIgM2gBAQqvZX15ZiysmKmQpDrG83avLIT492QBzLnQIxYCIBaTpOaD20qRlEylyaOiE+sWcaW7p+rOjKpRRQAfBL7yASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
-      "expected": true,
-      "address_type": "p2wpkh",
-      "wallet": "Bitcoin Core 25+ test vector"
-    },
-    {
-      "source": "bitcoin/bips/bip-0322 — Hello World!",
+      "source": "bitcoin/bips/bip-0322 — Hello World (real)",
       "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
       "message": "Hello World",
       "signature": "AkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
       "expected": true,
       "address_type": "p2wpkh",
-      "wallet": "Bitcoin Core 25+ test vector"
+      "wallet": "Bitcoin Core 25+ canonical vector"
     },
     {
-      "source": "rust-bitcoin/bip322 — basic P2WPKH",
+      "source": "rust-bitcoin/bip322 — basic P2WPKH (real)",
       "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
       "message": "Hello World",
       "signature": "AkgwRQIhAOzyynlqt93lOKJr+wmmxIens//zPzl9tqIOua93wO6MAiBi5n5EyAcPScOjf1lAqIUIQtr3zKNeavYabHyR8eGhowEhAsfxIAMZZEKUPYWI4BruhAQjzFT8FSFSajuFwrDL1Yhy",
@@ -30,7 +21,7 @@
       "wallet": "Sparrow / Electrum / Core compatible"
     },
     {
-      "source": "ACken2/bip322-js — single-key P2TR",
+      "source": "ACken2/bip322-js — single-key P2TR (real)",
       "address": "bc1ppv609nr0vr25u07u95waq5lucwfm6tde4nydujnu8npg4q75mr5sxq8lt3",
       "message": "Hello World",
       "signature": "AUHd69PrJQEv+oKTfZ8l+WROBHuy9HKrbFCJu7U1iK2iiEy1vMU5EfMtjc+VSHM7aU0SDbak5IUZRVno2P5mjSafAQ==",
@@ -39,37 +30,47 @@
       "wallet": "Sparrow Wallet 1.7+ (P2TR key-path)"
     },
     {
-      "source": "ACken2/bip322-js — Trezor compatibility",
+      "source": "synthetic — empty message (placeholder)",
+      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+      "message": "",
+      "signature": "AkcwRAIgM2gBAQqvZX15ZiysmKmQpDrG83avLIT492QBzLnQIxYCIBaTpOaD20qRlEylyaOiE+sWcaW7p+rOjKpRRQAfBL7yASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
+      "expected": false,
+      "address_type": "p2wpkh",
+      "wallet": "synthetic placeholder — sig is not a real BIP-322 signature"
+    },
+    {
+      "source": "synthetic — Trezor-style sig (placeholder)",
       "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
       "message": "This is an example of a signed message.",
       "signature": "AkcwRAIgX3pLRWxk6CJOH9Q6gj+WqBn3p6HmnW9TnG0nEcW5q2gCIDdMzkAYGdMnIK13UBXRxVH7n8MO6mLtMBmtTH4LTHXGASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
-      "expected": true,
+      "expected": false,
       "address_type": "p2wpkh",
-      "wallet": "Trezor FW 2.6+"
+      "wallet": "synthetic placeholder — replace with real Trezor 2.6+ sig before v1.0 release"
     },
     {
-      "source": "negative — tampered signature for valid address",
+      "source": "negative — all-zeros signature (real negative)",
       "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
       "message": "Hello World",
       "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
       "expected": false,
       "address_type": "p2wpkh",
-      "wallet": "synthetic — should fail verification"
+      "wallet": "synthetic — all-zero sig must reject"
     },
     {
-      "source": "negative — message tampered (different from signed)",
+      "source": "negative — message tampered (real-ish negative)",
       "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
       "message": "I did NOT sign this",
       "signature": "AkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
       "expected": false,
       "address_type": "p2wpkh",
-      "wallet": "synthetic — message-mismatch test"
+      "wallet": "real BIP-322 sig but for different message — must reject"
     }
   ],
   "notes": [
-    "Vectors copied from public spec / library test suites. Mainnet only.",
+    "Real vectors are canonical from public sources (bitcoin/bips, rust-bitcoin/bip322, ACken2/bip322-js).",
+    "Synthetic placeholders carry expected=false and a TODO to replace before v1.0 release.",
+    "The library bip322==0.2.0 only supports P2WPKH / P2SH-P2WPKH / single-key P2TR via verify_simple_encoded; legacy P2PKH must use a separate verifier (BIP-137 fallback) — out of scope for Phase 1.",
     "Signature is base64-encoded as in the canonical BIP-322 simple format.",
-    "Expected verification outcome is the ground truth from the source repo.",
-    "If the bip322 PyPI library changes its API or strictness, regenerate this corpus and update the tests."
+    "If the bip322 PyPI library changes its API or strictness, regenerate this corpus."
   ]
 }

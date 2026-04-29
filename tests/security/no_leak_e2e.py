@@ -28,15 +28,12 @@ from wallet_self_audit.logging.redaction import (
 )
 from wallet_self_audit.verdict import VerdictWithoutKey
 
-
 # Public, documented test privkey — same value as in scripts/generate_sentinel.py.
 TEST_PRIVKEY_INT = 0xC0FFEEC0FFEEC0FFEEC0FFEEC0FFEEC0FFEEC0FFEEC0FFEEC0FFEEC0FFEEDEAD
 TEST_PRIVKEY_HEX = f"{TEST_PRIVKEY_INT:064x}"
 
 
-_SENTINEL_PATH = (
-    Path(__file__).resolve().parent.parent / "fixtures" / "sentinel.txt"
-)
+_SENTINEL_PATH = Path(__file__).resolve().parent.parent / "fixtures" / "sentinel.txt"
 
 
 @pytest.mark.security
@@ -54,9 +51,7 @@ def test_synthetic_audit_does_not_leak_sentinel() -> None:
         pytest.skip("sentinel not generated yet")
 
     sentinel_lines = [
-        ln.strip()
-        for ln in _SENTINEL_PATH.read_text(encoding="utf-8").splitlines()
-        if ln.strip()
+        ln.strip() for ln in _SENTINEL_PATH.read_text(encoding="utf-8").splitlines() if ln.strip()
     ]
 
     captured_stdout = io.StringIO()
@@ -84,6 +79,7 @@ def test_synthetic_audit_does_not_leak_sentinel() -> None:
 
         # 3. Print verdict via to_public_json.
         import json
+
         print(json.dumps(verdict.to_public_json()), file=sys.stdout)
 
         # 4. Run all redaction processors with a malicious event_dict

@@ -18,13 +18,18 @@ import os
 
 __version__ = "1.0.0"
 
-# Auto-harden on import unless explicitly skipped (test fixtures may need this).
-if not os.environ.get("WSA_SKIP_HARDEN"):
+
+def _initial_harden_status() -> dict[str, bool]:
+    """Return the hardening status, applying hardening unless WSA_SKIP_HARDEN is set."""
+    if os.environ.get("WSA_SKIP_HARDEN"):  # pragma: no cover
+        return {"core_dumps_disabled": False, "mlock_available": False, "skipped": True}
     from wallet_self_audit.hardening import harden_process
 
-    _HARDEN_STATUS = harden_process()
-else:  # pragma: no cover
-    _HARDEN_STATUS = {"core_dumps_disabled": False, "mlock_available": False, "skipped": True}
+    return harden_process()
+
+
+# Auto-harden on import unless explicitly skipped (test fixtures may need this).
+_HARDEN_STATUS: dict[str, bool] = _initial_harden_status()
 
 
 __all__ = ["__version__"]

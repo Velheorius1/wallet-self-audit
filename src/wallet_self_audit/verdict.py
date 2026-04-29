@@ -22,7 +22,7 @@ for the invariant test corpus.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Final, Literal, NewType
+from typing import Final, Literal, NewType
 
 # Type aliases for fields that *legitimately* contain hex characters and would
 # otherwise trip the > 16-hex-char invariant.
@@ -110,30 +110,24 @@ class VerdictWithoutKey:
     def __post_init__(self) -> None:
         # 1. Confidence in valid range.
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError(
-                f"confidence must be in [0.0, 1.0], got {self.confidence!r}"
-            )
+            raise ValueError(f"confidence must be in [0.0, 1.0], got {self.confidence!r}")
 
         # 2. key_fingerprint is exactly 16 lowercase hex chars or None.
-        if self.key_fingerprint is not None and not _is_lowercase_hex(
-            self.key_fingerprint, 16
-        ):
-            raise ValueError(
-                "key_fingerprint must be exactly 16 lowercase hex chars or None"
-            )
+        if self.key_fingerprint is not None and not _is_lowercase_hex(self.key_fingerprint, 16):
+            raise ValueError("key_fingerprint must be exactly 16 lowercase hex chars or None")
 
         # 3. checks_performed required (non-empty unless explicit empty for
         #    "no checks ran" terminal-error case; allowed but flagged).
-        if not isinstance(self.checks_performed, tuple):
+        # Runtime check is defensive — type system already constrains this,
+        # but a caller passing a list via type: ignore would slip through.
+        if not isinstance(self.checks_performed, tuple):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(
                 f"checks_performed must be tuple, got {type(self.checks_performed).__name__}"
             )
 
         # 4. evidence_refs must be tuple of 64-hex txids (or empty tuple).
-        if not isinstance(self.evidence_refs, tuple):
-            raise TypeError(
-                f"evidence_refs must be tuple, got {type(self.evidence_refs).__name__}"
-            )
+        if not isinstance(self.evidence_refs, tuple):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(f"evidence_refs must be tuple, got {type(self.evidence_refs).__name__}")
         for ref in self.evidence_refs:
             if not _is_lowercase_hex(ref, 64):
                 raise ValueError(
@@ -168,21 +162,19 @@ class VerdictWithoutKey:
 
         # 7. Logical consistency: SAFE status must have finding=none.
         if self.status == "SAFE" and self.finding != "none":
-            raise ValueError(
-                f"status=SAFE requires finding=none, got finding={self.finding!r}"
-            )
+            raise ValueError(f"status=SAFE requires finding=none, got finding={self.finding!r}")
 
-    def to_public_json(self) -> dict[str, Any]:
+    def to_public_json(self) -> dict[str, object]:
         """Return a dict containing exactly the allowlisted public fields.
 
         Use this instead of ``dataclasses.asdict()`` — explicit allowlist
         prevents future-added private fields from leaking into reports.
         """
-        result: dict[str, Any] = {}
+        result: dict[str, object] = {}
         for field_name in _PUBLIC_FIELDS:
-            value = getattr(self, field_name)
+            value: object = getattr(self, field_name)
             if isinstance(value, tuple):
-                result[field_name] = list(value)
+                result[field_name] = list(value)  # pyright: ignore[reportUnknownArgumentType]
             else:
                 result[field_name] = value
         return result

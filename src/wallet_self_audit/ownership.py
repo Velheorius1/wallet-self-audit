@@ -19,10 +19,9 @@ from __future__ import annotations
 import json
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
-
 
 # Challenge format version. Bumping this invalidates all stored challenges.
 _CHALLENGE_VERSION = "v1"
@@ -83,11 +82,9 @@ def make_challenge(address: str) -> str:
     applies its own BIP-340 tagged hash with tag ``BIP0322-signed-message``.
     Double-hashing causes silent verify failure.
     """
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     nonce = secrets.token_hex(32)
-    return (
-        f"{_CHALLENGE_PREFIX}::{_CHALLENGE_VERSION}::{address}::{now}::{nonce}"
-    )
+    return f"{_CHALLENGE_PREFIX}::{_CHALLENGE_VERSION}::{address}::{now}::{nonce}"
 
 
 def parse_challenge(challenge: str) -> tuple[str, datetime]:
@@ -111,7 +108,7 @@ def parse_challenge(challenge: str) -> tuple[str, datetime]:
 
 def is_challenge_expired(issued_at: datetime, *, now: datetime | None = None) -> bool:
     """Return True if the challenge is older than ``_CHALLENGE_TTL``."""
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     return (current - issued_at) > _CHALLENGE_TTL
 
 
@@ -158,7 +155,9 @@ class BIP322Proof:
     method: Literal["bip322", "self_spend", "informational"] = "bip322"
     address: str = ""
     challenge: str = ""
-    proof: bytes = b""
+    # Proof may be raw bytes OR base64-encoded string (real wallets output b64).
+    # The verify() method handles both.
+    proof: bytes | str = b""
     replay_store_path: Path | None = None
 
     def verify(self) -> bool:
@@ -183,16 +182,14 @@ class BIP322Proof:
             )
         if is_challenge_expired(issued_at):
             raise ValueError(
-                f"challenge expired (issued {issued_at.isoformat()}); "
-                "generate a new challenge."
+                f"challenge expired (issued {issued_at.isoformat()}); generate a new challenge."
             )
 
         # 2. Replay protection.
         if self.replay_store_path is not None:
             if _is_challenge_replayed(self.replay_store_path, self.challenge):
                 raise ReplayedChallenge(
-                    "this challenge has already been verified; "
-                    "generate a new one."
+                    "this challenge has already been verified; generate a new one."
                 )
 
         # 3. Address classification (strict).
@@ -207,23 +204,32 @@ class BIP322Proof:
         # via the rust-bitcoin lib's strict verifier (key-path only).
 
         # 4. Local verification via rust-bitcoin/bip322.
+        # API: verify_simple_encoded(address, message, base64_signature)
+        # Returns None on valid; raises VerificationError on invalid.
         try:
             import bip322
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError(
-                "bip322 library not installed; install with "
-                "`uv add bip322==0.2.0`"
+                "bip322 library not installed; install with `uv add bip322==0.2.0`"
             ) from exc
 
+        # Accept proof as either base64 string OR raw bytes (we encode if bytes).
+        import base64
+
+        if isinstance(self.proof, str):
+            proof_b64 = self.proof
+        else:
+            proof_b64 = base64.b64encode(self.proof).decode("ascii")
+
+        verified = False
         try:
-            verified: bool = bool(
-                bip322.verify_simple(self.address, self.challenge, self.proof)
-            )
+            bip322.verify_simple_encoded(self.address, self.challenge, proof_b64)
+            verified = True
+        except bip322.VerificationError:
+            verified = False
         except Exception:
-            # Any exception from the verifier = not verified. Do NOT swallow
-            # — let the caller see the underlying error in debug logs (with
-            # redaction applied).
-            return False
+            # Other library errors (malformed proof, etc.) — treat as not verified.
+            verified = False
 
         # 5. Record successful verification in replay store.
         if verified and self.replay_store_path is not None:
@@ -252,7 +258,7 @@ def _record_used_challenge(store_path: Path, challenge: str) -> None:
     store_path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "challenge": challenge,
-        "verified_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "verified_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     with store_path.open("a", encoding="utf-8") as fp:
         fp.write(json.dumps(entry) + "\n")

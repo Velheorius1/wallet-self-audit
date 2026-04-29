@@ -66,9 +66,16 @@ def test_reject_unnecessary_leading_zero() -> None:
     # SEQUENCE { INTEGER 0x00, 0x01 (= 1, but encoded with extra 0x00) | INTEGER 1 }
     bad = bytes(
         [
-            0x30, 0x08,
-            0x02, 0x02, 0x00, 0x01,  # bad r: leading 0x00 unnecessary
-            0x02, 0x02, 0x00, 0x01,  # same for s
+            0x30,
+            0x08,
+            0x02,
+            0x02,
+            0x00,
+            0x01,  # bad r: leading 0x00 unnecessary
+            0x02,
+            0x02,
+            0x00,
+            0x01,  # same for s
         ]
     )
     with pytest.raises(DERParseError, match="unnecessary leading"):
@@ -79,9 +86,14 @@ def test_reject_negative_integer_msb_set() -> None:
     """An integer with MSB set in the FIRST byte is interpreted as negative."""
     bad = bytes(
         [
-            0x30, 0x06,
-            0x02, 0x01, 0x80,  # r = -128 in two's complement
-            0x02, 0x01, 0x01,
+            0x30,
+            0x06,
+            0x02,
+            0x01,
+            0x80,  # r = -128 in two's complement
+            0x02,
+            0x01,
+            0x01,
         ]
     )
     with pytest.raises(DERParseError, match="negative"):
@@ -91,9 +103,14 @@ def test_reject_negative_integer_msb_set() -> None:
 def test_reject_r_zero() -> None:
     bad = bytes(
         [
-            0x30, 0x06,
-            0x02, 0x01, 0x00,  # r = 0
-            0x02, 0x01, 0x01,
+            0x30,
+            0x06,
+            0x02,
+            0x01,
+            0x00,  # r = 0
+            0x02,
+            0x01,
+            0x01,
         ]
     )
     with pytest.raises(DERParseError):
@@ -103,10 +120,14 @@ def test_reject_r_zero() -> None:
 def test_reject_r_above_n() -> None:
     """r >= N is invalid by spec."""
     r = SECP256K1_N + 1
-    s = 1
     # Skip encode_der validation by constructing manually.
-    r_bytes = r.to_bytes(33, "big")  # extra byte to fit, with leading 0x00
-    sig = b"\x30" + bytes([3 + len(r_bytes) + 3]) + b"\x02" + bytes([len(r_bytes)]) + r_bytes + b"\x02\x01\x01"
+    # SEQUENCE body = INT_r_full + INT_s_full
+    #   INT_r_full = 0x02 + len(33) + 33 bytes = 35 bytes
+    #   INT_s_full = 0x02 + 0x01 + 0x01     = 3 bytes
+    # Total body = 38 bytes
+    r_bytes = r.to_bytes(33, "big")  # extra byte for leading 0x00 (MSB rule)
+    body_len = 2 + len(r_bytes) + 3  # 2 (INT_r tag+len) + 33 (r body) + 3 (INT_s)
+    sig = b"\x30" + bytes([body_len]) + b"\x02" + bytes([len(r_bytes)]) + r_bytes + b"\x02\x01\x01"
     with pytest.raises(DERParseError, match="out of range"):
         parse_der(sig)
 
