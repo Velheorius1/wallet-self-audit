@@ -1,0 +1,180 @@
+[project]
+name = "wallet-self-audit"
+version = "1.0.0"
+description = "Local Bitcoin wallet self-audit CLI for Mac M-series. Defensive — never outputs private keys."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Daniyar Salakhutdinov" },
+]
+keywords = ["bitcoin", "wallet", "audit", "security", "ecdsa", "prng", "milk-sad", "randstorm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security :: Cryptography",
+]
+dependencies = [
+    "typer>=0.15",
+    "rich>=13.9",
+    "coincurve>=21",
+    "btclib>=4",
+    "numpy>=2.1",
+    "mnemonic>=0.21",
+    "structlog>=24.4",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.27",
+    "bip322==0.2.0",
+]
+
+[project.scripts]
+wsa = "wallet_self_audit.cli:main"
+
+[project.optional-dependencies]
+lattice = ["fpylll>=0.6.4"]
+claude = ["claude-agent-sdk>=0.5"]
+
+[project.urls]
+Homepage = "https://github.com/Velheorius1/wallet-self-audit"
+Documentation = "https://github.com/Velheorius1/wallet-self-audit/tree/main/docs"
+Repository = "https://github.com/Velheorius1/wallet-self-audit"
+Issues = "https://github.com/Velheorius1/wallet-self-audit/issues"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wallet_self_audit"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.6",
+    "pytest-benchmark>=5.0",
+    "hypothesis>=6.115",
+    "mypy>=1.13",
+    "pyright>=1.1.385",
+    "ruff>=0.7",
+    "bandit[toml]>=1.7",
+    "pip-audit>=2.7",
+    "sigstore>=3.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.27",
+    "pre-commit>=4.0",
+]
+
+# ---------- Linting / Formatting ----------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "W",     # pycodestyle warnings
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "S",     # flake8-bandit (security)
+    "C4",    # comprehensions
+    "SIM",   # simplify
+    "RUF",   # ruff-specific
+    "PL",    # pylint
+    "TRY",   # tryceratops
+    "ASYNC", # async-misuse
+    "PERF",  # perflint
+    "G",     # logging-format (G004 catches f-strings in logger calls)
+]
+ignore = [
+    "S101",   # assert_used — pytest needs it
+    "PLR0913", # too many args — verdict has many fields by design
+    "TRY003", # long exc messages — defensive code wants context
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "S105", "S106"]
+"scripts/**" = ["S603", "S607"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["wallet_self_audit"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------- Type Checking ----------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+disallow_any_explicit = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unreachable = true
+no_implicit_reexport = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["bip322.*", "coincurve.*", "btclib.*", "mnemonic.*", "fpylll.*"]
+ignore_missing_imports = true
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["**/__pycache__", "**/.*"]
+strict = ["src/wallet_self_audit"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+
+# ---------- Testing ----------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "-n", "auto",
+    "--cov=wallet_self_audit",
+    "--cov-report=term-missing",
+    "--cov-fail-under=85",
+]
+markers = [
+    "lattice: lattice attack tests (slow, optional fpylll dep)",
+    "benchmark: performance regression tests",
+    "integration: integration tests (network or slow)",
+    "security: security/leak invariant tests",
+]
+
+[tool.coverage.run]
+source = ["src/wallet_self_audit"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+# ---------- Security ----------
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "build"]
+skips = ["B101"]  # assert_used (pytest)
+
+# NOTE: NO `[tool.uv] require-hashes = true` — invalid project-mode key.
+# `uv.lock` already embeds SHA-256 hashes; `uv sync --locked` verifies them.

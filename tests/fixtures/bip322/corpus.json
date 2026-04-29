@@ -1,0 +1,75 @@
+{
+  "version": "1.0.0",
+  "description": "BIP-322 cross-wallet test corpus. Vectors aggregated from bitcoin/bips, rust-bitcoin/bip322, and ACken2/bip322-js. Each vector has expected verify outcome.",
+  "vectors": [
+    {
+      "source": "bitcoin/bips/bip-0322 — empty message",
+      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+      "message": "",
+      "signature": "AkcwRAIgM2gBAQqvZX15ZiysmKmQpDrG83avLIT492QBzLnQIxYCIBaTpOaD20qRlEylyaOiE+sWcaW7p+rOjKpRRQAfBL7yASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
+      "expected": true,
+      "address_type": "p2wpkh",
+      "wallet": "Bitcoin Core 25+ test vector"
+    },
+    {
+      "source": "bitcoin/bips/bip-0322 — Hello World!",
+      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+      "message": "Hello World",
+      "signature": "AkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
+      "expected": true,
+      "address_type": "p2wpkh",
+      "wallet": "Bitcoin Core 25+ test vector"
+    },
+    {
+      "source": "rust-bitcoin/bip322 — basic P2WPKH",
+      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+      "message": "Hello World",
+      "signature": "AkgwRQIhAOzyynlqt93lOKJr+wmmxIens//zPzl9tqIOua93wO6MAiBi5n5EyAcPScOjf1lAqIUIQtr3zKNeavYabHyR8eGhowEhAsfxIAMZZEKUPYWI4BruhAQjzFT8FSFSajuFwrDL1Yhy",
+      "expected": true,
+      "address_type": "p2wpkh",
+      "wallet": "Sparrow / Electrum / Core compatible"
+    },
+    {
+      "source": "ACken2/bip322-js — single-key P2TR",
+      "address": "bc1ppv609nr0vr25u07u95waq5lucwfm6tde4nydujnu8npg4q75mr5sxq8lt3",
+      "message": "Hello World",
+      "signature": "AUHd69PrJQEv+oKTfZ8l+WROBHuy9HKrbFCJu7U1iK2iiEy1vMU5EfMtjc+VSHM7aU0SDbak5IUZRVno2P5mjSafAQ==",
+      "expected": true,
+      "address_type": "p2tr",
+      "wallet": "Sparrow Wallet 1.7+ (P2TR key-path)"
+    },
+    {
+      "source": "ACken2/bip322-js — Trezor compatibility",
+      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+      "message": "This is an example of a signed message.",
+      "signature": "AkcwRAIgX3pLRWxk6CJOH9Q6gj+WqBn3p6HmnW9TnG0nEcW5q2gCIDdMzkAYGdMnIK13UBXRxVH7n8MO6mLtMBmtTH4LTHXGASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
+      "expected": true,
+      "address_type": "p2wpkh",
+      "wallet": "Trezor FW 2.6+"
+    },
+    {
+      "source": "negative — tampered signature for valid address",
+      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+      "message": "Hello World",
+      "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "expected": false,
+      "address_type": "p2wpkh",
+      "wallet": "synthetic — should fail verification"
+    },
+    {
+      "source": "negative — message tampered (different from signed)",
+      "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+      "message": "I did NOT sign this",
+      "signature": "AkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
+      "expected": false,
+      "address_type": "p2wpkh",
+      "wallet": "synthetic — message-mismatch test"
+    }
+  ],
+  "notes": [
+    "Vectors copied from public spec / library test suites. Mainnet only.",
+    "Signature is base64-encoded as in the canonical BIP-322 simple format.",
+    "Expected verification outcome is the ground truth from the source repo.",
+    "If the bip322 PyPI library changes its API or strictness, regenerate this corpus and update the tests."
+  ]
+}

@@ -1,0 +1,63 @@
+# Gitleaks config — extends default rules with Bitcoin/crypto-specific patterns.
+# Default gitleaks does NOT have a Bitcoin private-key rule. We add one here.
+
+# Inherit all default rules (AWS, GitHub, Slack, etc.).
+[extend]
+useDefault = true
+
+# ------------------------------------------------------------------------
+# Bitcoin private key (hex, 64 chars), only flagged when associated with
+# secret-shaped keywords. High-entropy general-purpose hex is excluded
+# because tx hashes (txid) are also 64-char hex.
+# ------------------------------------------------------------------------
+[[rules]]
+id = "btc-privkey-hex"
+description = "Bitcoin/secp256k1 private key (hex) near secret keyword"
+regex = '''(?i)(?:priv(?:ate)?[_-]?key|secret[_-]?key|seed|mnemonic|wif|d_value|raw[_-]?key)\s*[=:]\s*['"]*[0-9a-f]{64}['"]*'''
+entropy = 3.5
+keywords = ["privkey", "private_key", "seed", "mnemonic", "wif", "raw_key"]
+
+# ------------------------------------------------------------------------
+# WIF private key (Wallet Import Format) — Base58Check, 51-52 chars,
+# starts with K, L (mainnet compressed) or 5 (mainnet uncompressed).
+# ------------------------------------------------------------------------
+[[rules]]
+id = "btc-privkey-wif"
+description = "Bitcoin private key (Wallet Import Format)"
+regex = '''\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b'''
+entropy = 4.5
+keywords = []
+
+# ------------------------------------------------------------------------
+# BIP-39 mnemonic phrase: 12-24 lowercase words from English wordlist
+# (heuristic; full validation is in the redaction module).
+# ------------------------------------------------------------------------
+[[rules]]
+id = "btc-bip39-mnemonic"
+description = "Possible BIP-39 mnemonic phrase"
+regex = '''\b(?:[a-z]{3,8}\s+){11,23}[a-z]{3,8}\b'''
+keywords = []
+
+# ------------------------------------------------------------------------
+# xprv extended private key
+# ------------------------------------------------------------------------
+[[rules]]
+id = "btc-xprv"
+description = "Bitcoin extended private key (xprv/yprv/zprv)"
+regex = '''\b(?:xprv|yprv|zprv|tprv|uprv|vprv)[1-9A-HJ-NP-Za-km-z]{107,108}\b'''
+keywords = ["xprv", "yprv", "zprv", "tprv", "uprv", "vprv"]
+
+# ------------------------------------------------------------------------
+# Allowlist — known fixture markers and design-doc test vectors.
+# Lines containing FIXTURE_OK are skipped.
+# ------------------------------------------------------------------------
+[allowlist]
+description = "Known test fixtures and design references"
+regexes = [
+    '''FIXTURE_OK''',
+    '''# noqa: gitleaks''',
+]
+paths = [
+    '''docs/plans/.*\.md''',  # design docs cite test addresses (public)
+    '''tests/fixtures/sentinel\.txt''',  # the sentinel itself is allowed; CI checks separately
+]

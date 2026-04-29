@@ -1,0 +1,63 @@
+# Pre-commit hooks — defense in depth for a security tool.
+# Runs: ruff (lint+format), mypy, bandit, gitleaks, detect-private-key, custom hex grep.
+# CI runs the same checks plus the sentinel leak gate.
+
+repos:
+  # Ruff: linter + formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Standard hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Gitleaks — generic + custom Bitcoin privkey rule (.gitleaks.toml)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # Bandit — Python security smells
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml", "-r", "src/"]
+        additional_dependencies: ["bandit[toml]"]
+
+  # Custom: block 64-char hex strings in staged content (possible private keys).
+  # FIXTURE_OK marker on a line allows known test fixtures.
+  - repo: local
+    hooks:
+      - id: hex-leak-grep
+        name: Block 64-char hex (possible privkey) in staged content
+        entry: scripts/check-hex-leaks.sh
+        language: script
+        types: [text]
+        pass_filenames: false
+
+  # mypy — local hook so it runs on the project's actual venv
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy src
+        language: system
+        types: [python]
+        pass_filenames: false

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "wallet-self-audit/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# No write permissions by default — least privilege.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }} / py${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+        os: [macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+
+      # CRITICAL: UV_NO_BUILD=1 refuses to compile any sdist.
+      # If a wheel is missing for the runner platform, install fails.
+      # This enforces the handoff constraint: "no source builds in CI".
+      - name: Install (no source builds, locked)
+        env:
+          UV_NO_BUILD: "1"
+        run: uv sync --locked --all-extras
+
+      - name: Lint (ruff)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check (mypy strict)
+        run: uv run mypy src
+
+      - name: Type check (pyright strict)
+        run: uv run pyright src
+
+      - name: Security smells (bandit)
+        run: uv run bandit -c pyproject.toml -r src/
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run tests with output capture
+        run: |
+          set -o pipefail
+          uv run pytest -ra 2>&1 | tee test_output.log
+
+      # CRITICAL: sentinel leak gate. Combines test output + audit log,
+      # greps for known test privkey fingerprint. Build fails on any hit.
+      - name: Sentinel leak gate
+        run: |
+          touch leak_corpus.txt
+          [ -f test_output.log ] && cat test_output.log >> leak_corpus.txt
+          [ -f ~/.local/state/wsa/audit.jsonl ] && cat ~/.local/state/wsa/audit.jsonl >> leak_corpus.txt
+          if grep -F -f tests/fixtures/sentinel.txt leak_corpus.txt; then
+            echo "::error::Test private key sentinel leaked into output"
+            exit 1
+          fi
+          echo "OK: no sentinel leak"
+
+      - name: Dependency audit (pip-audit)
+        run: uv run pip-audit --strict

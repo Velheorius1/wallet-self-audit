@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+# Default: read-only.
+permissions:
+  contents: read
+
+jobs:
+  # Build is isolated from publish — never give id-token to untrusted code paths.
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Build sdist + wheel
+        env:
+          UV_NO_BUILD: "1"
+        run: |
+          uv sync --locked
+          uv build
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # Publish job has id-token: write — Trusted Publishing.
+  # ONLY this job runs the upload action; nothing else here imports user code.
+  publish:
+    name: Publish to PyPI (Trusted Publishing + Sigstore)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/wallet-self-audit
+    permissions:
+      id-token: write   # OIDC for Trusted Publishing + Sigstore attestations
+      contents: read
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI with Sigstore attestations
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # attestations: true  # default in 2026
+
+  # GitHub Release with built artifacts attached.
+  github-release:
+    name: GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

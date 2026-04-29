@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "description": "DER ECDSA secp256k1 signature fixtures for parser tests. Each entry has (sig_hex, expected_r, expected_s, valid, notes).",
+  "vectors": [
+    {
+      "name": "canonical_low_s",
+      "sig_hex": "30440220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0902200a87a2dad9b9d8089b62b568a3833f6daab02d4a64a1c4ed1ef3a8c7d4ad8f1e",
+      "expected_r": "181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d09",
+      "expected_s": "0a87a2dad9b9d8089b62b568a3833f6daab02d4a64a1c4ed1ef3a8c7d4ad8f1e",
+      "valid": true,
+      "notes": "BIP-66 strict DER + BIP-62 low-s. Public test vector."
+    },
+    {
+      "name": "high_r_with_msb_set",
+      "sig_hex": "304502210080000000000000000000000000000000000000000000000000000000000000010220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d09",
+      "expected_r": "8000000000000000000000000000000000000000000000000000000000000001",
+      "expected_s": "181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d09",
+      "valid": true,
+      "notes": "r has MSB set; encoding requires leading 0x00."
+    },
+    {
+      "name": "malformed_wrong_seq_tag",
+      "sig_hex": "31060201010201 01",
+      "valid": false,
+      "notes": "SEQUENCE tag 0x31 (SET OF) instead of 0x30."
+    },
+    {
+      "name": "malformed_negative_int",
+      "sig_hex": "300602018002 0101",
+      "valid": false,
+      "notes": "r encoded as 0x80 (MSB set without leading 0x00 = negative)."
+    },
+    {
+      "name": "malformed_unnecessary_leading_zero",
+      "sig_hex": "300802020001 02020001",
+      "valid": false,
+      "notes": "Both r and s encoded with unneeded leading 0x00."
+    },
+    {
+      "name": "malformed_zero_r",
+      "sig_hex": "300602010002 0101",
+      "valid": false,
+      "notes": "r = 0 is invalid by ECDSA spec."
+    }
+  ],
+  "notes": [
+    "sig_hex strings have spaces removed before parsing (formatting aid only).",
+    "These vectors test parser strictness, not signature validity over a curve."
+  ]
+}

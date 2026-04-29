@@ -1,0 +1,103 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.Python
+build/
+dist/
+sdist/
+wheels/
+*.whl
+develop-eggs/
+.eggs/
+parts/
+var/
+*.egg-info/
+.installed.cfg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version.local
+
+# uv
+.uv/
+
+# Testing
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.hypothesis/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+.benchmarks/
+
+# Type checkers
+.mypy_cache/
+.pyright/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Linters
+.ruff_cache/
+.bandit/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Documentation
+site/
+.cache/
+
+# Audit data (NEVER commit user audit results)
+~/.local/state/wsa/
+~/.local/share/wsa/
+~/.config/wsa/
+audit_*.log
+*.audit.json
+*.audit.md
+audits/
+test_output.log
+leak_corpus.txt
+
+# Secrets / Test artifacts that COULD contain key material
+*.pem
+*.key
+*.wif
+*_privkey*
+*_seed*
+*_mnemonic*
+sentinel.txt.bak
+
+# Build/release
+*.tar.gz
+*.zip
+
+# Jupyter (refused at runtime, but block from repo too)
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.fseventsd/
+.Spotlight-V100/
+.Trashes
