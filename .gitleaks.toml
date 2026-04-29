@@ -52,12 +52,24 @@ keywords = ["xprv", "yprv", "zprv", "tprv", "uprv", "vprv"]
 # Lines containing FIXTURE_OK are skipped.
 # ------------------------------------------------------------------------
 [allowlist]
-description = "Known test fixtures and design references"
+description = "Known test fixtures, scripts that generate them, and design references."
 regexes = [
     '''FIXTURE_OK''',
     '''# noqa: gitleaks''',
 ]
 paths = [
-    '''docs/plans/.*\.md''',  # design docs cite test addresses (public)
-    '''tests/fixtures/sentinel\.txt''',  # the sentinel itself is allowed; CI checks separately
+    # Design docs reference public test addresses (Milk Sad disclosed, etc.).
+    '''docs/.*\.md''',
+    # All test fixtures contain known-public test vectors by definition.
+    '''tests/fixtures/.*''',
+    # Test code carries fingerprints/sentinels intentionally.
+    '''tests/.*\.py''',
+    # Sentinel generator embeds the documented test privkey on purpose.
+    '''scripts/generate_sentinel\.py''',
+    # README / SECURITY / CONTRIBUTING reference test patterns; never real keys.
+    '''README\.md''',
+    '''SECURITY\.md''',
+    '''CONTRIBUTING\.md''',
+    # The lockfile contains hashes that gitleaks misclassifies as keys.
+    '''uv\.lock''',
 ]
