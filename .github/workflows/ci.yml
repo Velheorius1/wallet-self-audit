@@ -88,5 +88,7 @@ jobs:
           fi
           echo "OK: no sentinel leak"
 
-      - name: Dependency audit (pip-audit)
-        run: uv run pip-audit --strict
+      # --skip-editable excludes our own project (it's not on PyPI yet).
+      # Without it, pip-audit fails with "Dependency not found on PyPI".
+      - name: Dependency audit (pip-audit, skip editable)
+        run: uv run pip-audit --strict --skip-editable
