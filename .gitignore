@@ -101,3 +101,6 @@ sentinel.txt.bak
 .fseventsd/
 .Spotlight-V100/
 .Trashes
+
+# Phase 2: compiled C++ reference binary (regenerated from tools/ref.cpp)
+tools/ref

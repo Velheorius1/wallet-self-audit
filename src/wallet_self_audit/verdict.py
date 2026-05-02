@@ -21,6 +21,7 @@ for the invariant test corpus.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final, Literal, NewType
 
@@ -42,10 +43,15 @@ Finding = Literal[
 ]
 
 
-# Maximum number of hex characters allowed in any free-form field
-# (``recommendation``, ``finding``). 16 chars = 8 bytes, well below the 32-byte
-# secret threshold. Other fields are constrained by their own structural rules.
-_MAX_HEX_CHARS_IN_FREEFORM_FIELD: Final[int] = 16
+# Free-form fields (``recommendation``, ``finding``) must not contain a
+# *contiguous run* of hex characters of length >= this threshold. 16 chars
+# = 8 bytes, well below the 32-byte secret threshold. We scan for a run
+# rather than counting total hex chars because plain English contains many
+# a/b/c/d/e/f letters that would trip a naive total count.
+_MAX_HEX_RUN_IN_FREEFORM_FIELD: Final[int] = 16
+_HEX_RUN_RE: Final[re.Pattern[str]] = re.compile(
+    rf"[0-9a-fA-F]{{{_MAX_HEX_RUN_IN_FREEFORM_FIELD + 1},}}"
+)
 
 
 # Allowlist of fields that ``to_public_json`` exposes. Updating this list is
@@ -65,9 +71,14 @@ _PUBLIC_FIELDS: Final[frozenset[str]] = frozenset(
 )
 
 
-def _hex_char_count(s: str) -> int:
-    """Count [0-9a-fA-F] characters in *s*. Used by the class invariant."""
-    return sum(1 for c in s if c in "0123456789abcdefABCDEF")
+def _has_long_hex_run(s: str) -> bool:
+    """Return True iff *s* contains a contiguous run of >16 hex characters.
+
+    A run of 17+ hex chars is considered suspicious (a hash160 truncated
+    to 17 chars is enough signal; a real hash160 is 40 chars and a
+    private key is 64 hex). Plain English never has this many in a row.
+    """
+    return _HEX_RUN_RE.search(s) is not None
 
 
 def _is_lowercase_hex(s: str, length: int) -> bool:
@@ -134,16 +145,18 @@ class VerdictWithoutKey:
                     f"evidence_refs entries must be 64-char lowercase hex (got {ref!r})"
                 )
 
-        # 5. Class invariant: free-form text fields must NOT contain
-        #    > 16 hex chars. This catches accidental privkey leakage.
-        #    Note: ``address`` is excluded because bech32 addresses (bc1q...)
+        # 5. Class invariant: free-form text fields must NOT contain a
+        #    contiguous run of > 16 hex characters. This catches accidental
+        #    privkey/hash leakage without false-positiving on English text
+        #    (which legitimately contains many a/b/c/d/e/f letters).
+        #    ``address`` is excluded because bech32 addresses (bc1q...)
         #    legitimately contain many hex-like characters.
         for fname in ("recommendation", "finding"):
             value = getattr(self, fname)
-            if _hex_char_count(value) > _MAX_HEX_CHARS_IN_FREEFORM_FIELD:
+            if _has_long_hex_run(value):
                 raise ValueError(
-                    f"field {fname!r} contains > {_MAX_HEX_CHARS_IN_FREEFORM_FIELD} "
-                    f"hex chars (possible private key leak)"
+                    f"field {fname!r} contains a hex run > "
+                    f"{_MAX_HEX_RUN_IN_FREEFORM_FIELD} chars (possible private key leak)"
                 )
 
         # 6. status / finding are constrained by Literal types — runtime check

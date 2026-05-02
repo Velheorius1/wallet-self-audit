@@ -59,15 +59,18 @@ def test_valid_verdict_round_trips_through_json(
     assert parsed["finding"] == finding
 
 
-@given(s=st.text(alphabet=string.ascii_lowercase + string.digits, min_size=17))
-def test_recommendation_with_too_many_hex_rejected(s: str) -> None:
-    """If the random string happens to have > 16 hex chars, construction fails."""
+@given(
+    hex_run=st.text(alphabet=string.hexdigits, min_size=17, max_size=80),
+    prefix=st.text(alphabet=string.ascii_letters + " ", max_size=20),
+    suffix=st.text(alphabet=string.ascii_letters + " ", max_size=20),
+)
+def test_recommendation_with_long_hex_run_rejected(
+    hex_run: str, prefix: str, suffix: str
+) -> None:
+    """A contiguous hex run > 16 chars triggers the invariant."""
     import pytest
 
-    hex_chars = sum(1 for c in s if c in "0123456789abcdefABCDEF")
-    if hex_chars <= 16:
-        # Doesn't trigger the invariant; skip this case.
-        return
+    s = prefix + hex_run + suffix
 
     with pytest.raises(ValueError, match="possible private key leak"):
         VerdictWithoutKey(
@@ -81,3 +84,27 @@ def test_recommendation_with_too_many_hex_rejected(s: str) -> None:
             audit_id="00000000-0000-0000-0000-000000000000",
             checks_performed=(),
         )
+
+
+@given(
+    text=st.text(
+        alphabet=string.ascii_letters + " .,!-",
+        min_size=10,
+        max_size=200,
+    ),
+)
+def test_recommendation_plain_english_accepted(text: str) -> None:
+    """Plain English (no contiguous 16+ hex run) must construct cleanly."""
+    # Construct should not raise — the recommendation has scattered hex
+    # letters (a/b/c/d/e/f) but no 17-char contiguous run.
+    VerdictWithoutKey(
+        address="bc1qexample",
+        status="SAFE",
+        finding="none",
+        confidence=0.99,
+        key_fingerprint=None,
+        recommendation=text,
+        evidence_refs=(),
+        audit_id="00000000-0000-0000-0000-000000000000",
+        checks_performed=(),
+    )
