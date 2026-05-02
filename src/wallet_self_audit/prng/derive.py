@@ -62,17 +62,16 @@ class WalletAddresses:
 
 
 def entropy_to_seed(entropy: bytes) -> bytes:
-    """BIP-39 PBKDF2 — entropy → 64-byte seed.
+    """BIP-39 PBKDF2 — entropy to 64-byte seed.
 
-    NOTE: most PRNG audit code paths skip this entirely (compare entropy
-    bytes directly). We expose it for the rare case where a vector needs
-    the full BIP-32 path (e.g. an address-only audit where the user knows
-    the address but not the mnemonic).
+    Note: most PRNG audit code paths skip this entirely (entropy-direct
+    compare). We expose it for the rare case where a vector needs the
+    full BIP-32 path (address-only mode, where the user supplies a
+    receive address rather than a mnemonic).
 
-    Empty passphrase only — that is what the BIP-39 wordlist roundtrip
-    convention assumes. If a wallet uses a non-empty passphrase, the
-    entropy-direct comparison short-circuit doesn't apply and the user
-    needs to enter the passphrase via owner_input.
+    Empty passphrase only — that is the BIP-39 round-trip convention.
+    Wallets with a non-empty passphrase short-circuit the entropy-direct
+    compare; users must then enter the passphrase via owner_input.
     """
     # mnemonic-string-to-seed expects the canonical mnemonic; we derive it
     # here for clarity rather than re-implementing the wordlist mapping.
