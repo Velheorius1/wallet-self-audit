@@ -221,6 +221,18 @@ def _seed_seq_generate(v: list[int], n: int) -> list[int]:
 # ---------------------------------------------------------------------------
 # Validation fixtures
 # ---------------------------------------------------------------------------
+def _to_int(x: object) -> int:
+    """Coerce a JSON-derived value to ``int``, raising on unexpected types."""
+    if isinstance(x, bool):
+        # ``bool`` is a subclass of ``int`` — reject explicitly.
+        raise TypeError(f"expected int, got bool: {x!r}")
+    if isinstance(x, int):
+        return x
+    if isinstance(x, str):
+        return int(x)
+    raise TypeError(f"expected int-like value, got {type(x).__name__}: {x!r}")
+
+
 def _coerce_fixture_cases(raw: object) -> list[dict[str, object]] | None:
     """Validate that a parsed JSON object has the expected fixture shape."""
     if not isinstance(raw, dict):
@@ -291,14 +303,12 @@ def check_fixtures() -> bool:
         expected_outputs_obj = case.get("first_outputs")
         if not isinstance(seed_seq_input_obj, list) or not isinstance(expected_outputs_obj, list):
             raise TypeError("malformed fixture entry: missing seed_seq_input / first_outputs")
-        seed_seq_input: list[int] = [
-            int(x)
-            for x in seed_seq_input_obj  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
-        ]
-        expected_outputs: list[int] = [
-            int(x)
-            for x in expected_outputs_obj  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
-        ]
+        # Force the iteration variables through ``object`` so int() gets a
+        # concrete type even when pyright cannot infer the JSON value's type.
+        ssi: list[object] = list(seed_seq_input_obj)  # pyright: ignore[reportUnknownArgumentType]
+        eo: list[object] = list(expected_outputs_obj)  # pyright: ignore[reportUnknownArgumentType]
+        seed_seq_input: list[int] = [_to_int(x) for x in ssi]
+        expected_outputs: list[int] = [_to_int(x) for x in eo]
 
         rng = MT19937.from_seed_seq(seed_seq_input)
         actual = [rng.next_uint32() for _ in range(len(expected_outputs))]
