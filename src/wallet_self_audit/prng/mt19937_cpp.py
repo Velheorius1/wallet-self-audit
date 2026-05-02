@@ -255,9 +255,11 @@ def _load_fixture() -> list[dict[str, object]] | None:
             if cases is not None:
                 return cases
     try:
-        with resources.files("wallet_self_audit.prng.fixtures").joinpath(
-            "mt19937_cpp_ref.json"
-        ).open("rb") as f:
+        with (
+            resources.files("wallet_self_audit.prng.fixtures")
+            .joinpath("mt19937_cpp_ref.json")
+            .open("rb") as f
+        ):
             raw_data2: object = json.loads(f.read().decode("utf-8"))
             cases2 = _coerce_fixture_cases(raw_data2)
             if cases2 is not None:
@@ -287,15 +289,15 @@ def check_fixtures() -> bool:
     for case in cases:
         seed_seq_input_obj = case.get("seed_seq_input")
         expected_outputs_obj = case.get("first_outputs")
-        if not isinstance(seed_seq_input_obj, list) or not isinstance(
-            expected_outputs_obj, list
-        ):
+        if not isinstance(seed_seq_input_obj, list) or not isinstance(expected_outputs_obj, list):
             raise TypeError("malformed fixture entry: missing seed_seq_input / first_outputs")
         seed_seq_input: list[int] = [
-            int(x) for x in seed_seq_input_obj  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+            int(x)
+            for x in seed_seq_input_obj  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
         ]
         expected_outputs: list[int] = [
-            int(x) for x in expected_outputs_obj  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+            int(x)
+            for x in expected_outputs_obj  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
         ]
 
         rng = MT19937.from_seed_seq(seed_seq_input)

@@ -37,9 +37,7 @@ def test_scan_seeds_finds_synthetic_hit() -> None:
 
 def test_scan_seeds_random_entropy_misses() -> None:
     rand = os.urandom(16)
-    hit, _ = scan_seeds(
-        rand, s0_range=(0, 100), s1_fixed=0xCAFE0000, n_workers=1
-    )
+    hit, _ = scan_seeds(rand, s0_range=(0, 100), s1_fixed=0xCAFE0000, n_workers=1)
     assert hit is None
 
 

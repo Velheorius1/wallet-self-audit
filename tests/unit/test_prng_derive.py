@@ -29,9 +29,7 @@ _VECTORS: list[tuple[str, str, str, str]] = [
 
 
 @pytest.mark.parametrize(("mnemonic", "p2pkh", "p2sh", "p2wpkh"), _VECTORS)
-def test_first_addresses_match_trezor(
-    mnemonic: str, p2pkh: str, p2sh: str, p2wpkh: str
-) -> None:
+def test_first_addresses_match_trezor(mnemonic: str, p2pkh: str, p2sh: str, p2wpkh: str) -> None:
     entropy = mnemonic_to_entropy(mnemonic)
     addrs = first_addresses(entropy)
     assert addrs.p2pkh_bip44 == p2pkh

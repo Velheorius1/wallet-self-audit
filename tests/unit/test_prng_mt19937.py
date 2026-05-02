@@ -13,9 +13,7 @@ from wallet_self_audit.prng.mt19937_cpp import (
     entropy_from_timestamp,
 )
 
-_FIXTURE_PATH = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "prng" / "mt19937_cpp_ref.json"
-)
+_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "prng" / "mt19937_cpp_ref.json"
 
 
 def test_check_fixtures_passes() -> None:

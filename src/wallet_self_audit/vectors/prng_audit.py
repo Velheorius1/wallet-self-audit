@@ -196,8 +196,7 @@ def run_prng_audit(
         if rs_hit is not None:
             fp = _fingerprint_from_inputs(
                 finding="weak_prng_randstorm",
-                evidence=rs_hit.s0_seed.to_bytes(8, "big")
-                + rs_hit.s1_seed.to_bytes(8, "big"),
+                evidence=rs_hit.s0_seed.to_bytes(8, "big") + rs_hit.s1_seed.to_bytes(8, "big"),
             )
             return _make_verdict(
                 address=config.address,

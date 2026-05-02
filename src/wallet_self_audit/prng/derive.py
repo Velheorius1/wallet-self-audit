@@ -27,9 +27,7 @@ from typing import Final
 from coincurve import PrivateKey, PublicKey
 
 # secp256k1 curve order.
-_SECP256K1_N: Final[int] = (
-    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-)
+_SECP256K1_N: Final[int] = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
 # BIP-39 seed → BIP-32 master key uses HMAC-SHA512 with this key.
 _BIP32_MASTER_KEY: Final[bytes] = b"Bitcoin seed"
@@ -41,9 +39,7 @@ _HARDENED: Final[int] = 0x80000000
 _BECH32_CHARSET: Final[str] = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
 # Base58 alphabet (Bitcoin variant).
-_BASE58_ALPHABET: Final[str] = (
-    "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-)
+_BASE58_ALPHABET: Final[str] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 # Mainnet prefixes.
 _P2PKH_VERSION: Final[int] = 0x00  # BIP-44 — addresses start with '1'
@@ -84,9 +80,7 @@ def entropy_to_seed(entropy: bytes) -> bytes:
 
     mnemonic = entropy_to_mnemonic(entropy)
     salt = b"mnemonic"  # BIP-39 with empty passphrase
-    return hashlib.pbkdf2_hmac(
-        "sha512", mnemonic.encode("utf-8"), salt, 2048, dklen=64
-    )
+    return hashlib.pbkdf2_hmac("sha512", mnemonic.encode("utf-8"), salt, 2048, dklen=64)
 
 
 def _master_from_seed(seed: bytes) -> tuple[bytes, bytes]:

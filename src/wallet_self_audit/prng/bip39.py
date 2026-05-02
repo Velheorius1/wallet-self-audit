@@ -112,9 +112,7 @@ def entropy_to_mnemonic(entropy: bytes) -> str:
         InvalidMnemonic: If the entropy length is unsupported.
     """
     if len(entropy) not in (16, 20, 24, 28, 32):
-        raise InvalidMnemonic(
-            f"entropy must be 16/20/24/28/32 bytes, got {len(entropy)}"
-        )
+        raise InvalidMnemonic(f"entropy must be 16/20/24/28/32 bytes, got {len(entropy)}")
 
     ent_bits = len(entropy) * 8
     cs_bits = ent_bits // 32

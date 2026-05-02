@@ -74,10 +74,7 @@ def prompt_mnemonic(
     out = stream if stream is not None else sys.stderr
 
     if confirm_phrase is not None:
-        prompt = (
-            f"Type {confirm_phrase!r} exactly to proceed (or anything else "
-            "to abort): "
-        )
+        prompt = f"Type {confirm_phrase!r} exactly to proceed (or anything else to abort): "
         try:
             answer = input(prompt) if stream is None else _readline(out, prompt)
         except EOFError:

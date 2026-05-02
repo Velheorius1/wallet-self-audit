@@ -22,13 +22,11 @@ _TREZOR_VECTORS: list[tuple[str, str]] = [
     ),
     (
         "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
-        "legal winner thank year wave sausage worth useful legal winner "
-        "thank yellow",
+        "legal winner thank year wave sausage worth useful legal winner thank yellow",
     ),
     (
         "80808080808080808080808080808080",
-        "letter advice cage absurd amount doctor acoustic avoid letter "
-        "advice cage above",
+        "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
     ),
     (
         "ffffffffffffffffffffffffffffffff",

@@ -64,9 +64,7 @@ def test_valid_verdict_round_trips_through_json(
     prefix=st.text(alphabet=string.ascii_letters + " ", max_size=20),
     suffix=st.text(alphabet=string.ascii_letters + " ", max_size=20),
 )
-def test_recommendation_with_long_hex_run_rejected(
-    hex_run: str, prefix: str, suffix: str
-) -> None:
+def test_recommendation_with_long_hex_run_rejected(hex_run: str, prefix: str, suffix: str) -> None:
     """A contiguous hex run > 16 chars triggers the invariant."""
     import pytest
 

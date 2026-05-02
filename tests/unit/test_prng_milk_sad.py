@@ -20,9 +20,7 @@ def test_scan_window_finds_synthetic_hit() -> None:
     target_ts = 1577836900
     target_entropy = entropy_from_timestamp(target_ts, n_words=12)
 
-    hit = scan_window(
-        target_entropy, start=target_ts - 50, end=target_ts + 50, n_workers=1
-    )
+    hit = scan_window(target_entropy, start=target_ts - 50, end=target_ts + 50, n_workers=1)
     assert hit is not None
     assert isinstance(hit, MilkSadHit)
     assert hit.timestamp == target_ts
@@ -55,9 +53,7 @@ def test_scan_window_by_addresses_finds_synthetic_hit() -> None:
     # Use the bech32 address as the searched target.
     targets = frozenset({addrs.p2wpkh_bip84}) if addrs.p2wpkh_bip84 else frozenset()
 
-    hit = scan_window_by_addresses(
-        targets, start=target_ts - 5, end=target_ts + 5, n_workers=1
-    )
+    hit = scan_window_by_addresses(targets, start=target_ts - 5, end=target_ts + 5, n_workers=1)
     assert hit is not None
     assert hit.timestamp == target_ts
     assert hit.matched_via == "p2wpkh_bip84"

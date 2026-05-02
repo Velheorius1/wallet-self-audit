@@ -30,9 +30,7 @@ def test_password_brainwallet_detected_via_p2pkh() -> None:
 
 
 def test_unknown_address_misses() -> None:
-    miss = scan_phrases(
-        frozenset({"bc1qzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}), n_workers=1
-    )
+    miss = scan_phrases(frozenset({"bc1qzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}), n_workers=1)
     assert miss is None
 
 
