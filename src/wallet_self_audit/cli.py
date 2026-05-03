@@ -397,6 +397,163 @@ def _print_verdict_txt(verdict: object) -> None:
     )
 
 
+@app.command(name="nonce-audit")
+def nonce_audit_cmd(
+    address: str = typer.Argument(
+        ...,
+        metavar="ADDRESS",
+        help="P2PKH (1...) or P2WPKH (bc1q...) address to audit.",
+    ),
+    proof_file: str = typer.Option(
+        "",
+        "--proof",
+        help=(
+            'Path to a BIP-322 signed-message proof JSON ({"challenge": ..., '
+            '"signature": ...}). Required unless --informational.'
+        ),
+    ),
+    informational: bool = typer.Option(
+        False,
+        "--informational",
+        help=(
+            "Public-information-only mode: returns counts of outgoing tx and "
+            "(pubkey, r) collision groups. NO BIP-322 proof required, NO "
+            "key-fingerprint output."
+        ),
+    ),
+    max_txs: int = typer.Option(
+        200,
+        "--max-txs",
+        help="Maximum number of outgoing transactions to scan.",
+    ),
+    output: str = typer.Option(
+        "txt",
+        "--output",
+        help="Output format: txt | json | both.",
+    ),
+    challenge: bool = typer.Option(
+        False,
+        "--print-challenge",
+        help=(
+            "Print a fresh BIP-322 challenge string for the given address "
+            "and exit. Sign this with your wallet, then re-run with --proof."
+        ),
+    ),
+) -> None:
+    """Run the nonce audit (r-collision detection) on an address.
+
+    Two modes:
+
+    \\b
+    1. Owner mode (default): supply --proof <file> with a BIP-322 signed
+       message. The audit then looks for r-collisions across every
+       outgoing signature; a match triggers VULNERABLE without ever
+       materializing the recovered private key.
+    2. Informational mode (--informational): no proof required; output is
+       a count summary only. Useful for "is this worth auditing?"
+       prequalifiers.
+
+    To get a fresh BIP-322 challenge for your wallet, run with
+    --print-challenge and sign the printed string in Sparrow / Electrum /
+    Bitcoin Core 25+ / a hardware wallet that supports BIP-322.
+    """
+    import json as _json
+
+    from wallet_self_audit.nonce.extractor import HttpMempoolClient
+    from wallet_self_audit.ownership import BIP322Proof, make_challenge
+    from wallet_self_audit.vectors.nonce_audit import (
+        NonceAuditConfig,
+        run_nonce_audit,
+        run_nonce_audit_informational,
+    )
+
+    configure_logging()
+
+    if challenge:
+        ch = make_challenge(address)
+        console.print(
+            Panel.fit(
+                f"[bold]Sign this string with your wallet:[/bold]\n\n[cyan]{ch}[/cyan]\n\n"
+                "Then save the signature to a JSON file (e.g. [yellow]proof.json[/yellow]):\n"
+                '  [dim]{"challenge": "...", "signature": "<base64>"}[/dim]\n\n'
+                f"Then run: [cyan]wsa nonce-audit {address} --proof proof.json[/cyan]",
+                title="BIP-322 challenge",
+                border_style="cyan",
+            )
+        )
+        return
+
+    if not informational:
+        if not proof_file:
+            console.print("[red]error:[/red] --proof <file> is required (or use --informational).")
+            raise typer.Exit(code=2)
+        path = Path(proof_file)
+        if not path.exists():
+            console.print(f"[red]error:[/red] proof file not found: {path}")
+            raise typer.Exit(code=2)
+        try:
+            raw_blob: object = _json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]error:[/red] cannot read/parse proof: {exc}")
+            raise typer.Exit(code=2) from exc
+        if not isinstance(raw_blob, dict):
+            console.print("[red]error:[/red] proof JSON must be an object.")
+            raise typer.Exit(code=2)
+        blob: dict[str, object] = raw_blob  # pyright: ignore[reportUnknownVariableType,reportAssignmentType]
+        challenge_str = blob.get("challenge")
+        signature = blob.get("signature")
+        if not isinstance(challenge_str, str) or not isinstance(signature, str):
+            console.print(
+                "[red]error:[/red] proof JSON must contain 'challenge' and 'signature' strings."
+            )
+            raise typer.Exit(code=2)
+        proof = BIP322Proof(
+            method="bip322",
+            address=address,
+            challenge=challenge_str,
+            proof=signature,
+        )
+        try:
+            ok = proof.verify()
+        except (ValueError, RuntimeError) as exc:
+            console.print(f"[red]proof rejected:[/red] {exc}")
+            raise typer.Exit(code=2) from exc
+        if not ok:
+            console.print("[red]proof rejected:[/red] BIP-322 signature did not verify.")
+            raise typer.Exit(code=2)
+        console.print("[green]✓[/green] BIP-322 proof verified.")
+
+    config = NonceAuditConfig(address=address, max_txs=max_txs)
+    client = HttpMempoolClient()
+    try:
+        if informational:
+            info = run_nonce_audit_informational(config, client)
+            if output in ("json", "both"):
+                console.print_json(_json.dumps(info))
+            if output in ("txt", "both"):
+                console.print(
+                    Panel.fit(
+                        f"[bold]Address:[/bold] {info['address']}\n"
+                        f"[bold]Outgoing tx:[/bold] {info['outgoing_tx_count']}\n"
+                        f"[bold](pubkey, r) collision groups:[/bold] {info['collision_groups']}",
+                        title="wsa nonce-audit (informational)",
+                        border_style="cyan",
+                    )
+                )
+            return
+
+        verdict = run_nonce_audit(config, client)
+        if output in ("txt", "both"):
+            _print_verdict_txt(verdict)
+        if output in ("json", "both"):
+            console.print_json(_json.dumps(verdict.to_public_json()))
+        if output not in ("txt", "json", "both"):
+            console.print(f"[red]Unknown --output:[/red] {output!r}")
+            raise typer.Exit(code=2)
+    finally:
+        client.close()
+
+
 @app.command(name="version")
 def version_cmd() -> None:
     """Show version and exit."""
