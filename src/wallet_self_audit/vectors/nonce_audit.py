@@ -20,6 +20,7 @@ This is the public-information mode that requires no proof-of-ownership.
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 
 from wallet_self_audit.crypto.recovery_detector import (
@@ -34,6 +35,7 @@ from wallet_self_audit.nonce.extractor import (
     SignatureRecord,
     extract_outgoing_signatures,
 )
+from wallet_self_audit.nonce.lattice import LatticeHit, attempt_recovery
 from wallet_self_audit.verdict import VerdictWithoutKey
 
 
@@ -50,6 +52,7 @@ def _make_safe_or_suspicious_verdict(
     address: str,
     n_signatures: int,
     audit_id: str,
+    also_lattice_clean: bool = False,
 ) -> VerdictWithoutKey:
     """Construct the clean-result verdict.
 
@@ -57,6 +60,9 @@ def _make_safe_or_suspicious_verdict(
     meaningful (>= 1). With zero signatures the wallet has never spent,
     so r-collision is undefined; we report SUSPICIOUS — partial.
     """
+    checks: tuple[str, ...] = (
+        ("r_collision", "lattice_bias") if also_lattice_clean else ("r_collision",)
+    )
     if n_signatures == 0:
         return VerdictWithoutKey(
             address=address,
@@ -71,7 +77,7 @@ def _make_safe_or_suspicious_verdict(
             ),
             evidence_refs=(),
             audit_id=audit_id,
-            checks_performed=("r_collision",),
+            checks_performed=checks,
         )
     return VerdictWithoutKey(
         address=address,
@@ -80,14 +86,14 @@ def _make_safe_or_suspicious_verdict(
         confidence=0.95,
         key_fingerprint=None,
         recommendation=(
-            "No nonce reuse detected across all outgoing signatures. "
-            "Note: this only proves the absence of r-collisions; lattice / "
-            "HNP attacks against subtly biased nonces are addressed in "
-            "Phase 4."
+            "No nonce reuse detected and no lattice / HNP recovery "
+            "succeeded against the configured bias hypotheses. Note: "
+            "absence of recovery is not a guarantee of safety against "
+            "novel attack patterns."
         ),
         evidence_refs=(),
         audit_id=audit_id,
-        checks_performed=("r_collision",),
+        checks_performed=checks,
     )
 
 
@@ -163,10 +169,74 @@ def run_nonce_audit(
                 pair_b=b,
             )
 
+    # Stage B: lattice / HNP attack on biased nonces. Group sigs by pubkey
+    # (most wallets reuse one pubkey across all outgoing tx) and try the
+    # default hypothesis ladder. We never store candidate ``d`` values.
+    lattice_hit, lattice_attempted = _stage_b_lattice(records)
+    if lattice_hit is not None:
+        return _verdict_from_lattice(
+            address=config.address,
+            audit_id=audit_id,
+            hit=lattice_hit,
+        )
+
     return _make_safe_or_suspicious_verdict(
         address=config.address,
         n_signatures=len(records),
         audit_id=audit_id,
+        also_lattice_clean=lattice_attempted,
+    )
+
+
+def _stage_b_lattice(
+    records: list[SignatureRecord],
+) -> tuple[LatticeHit | None, bool]:
+    """Group signatures by pubkey and try the lattice attack on each group.
+
+    Returns:
+        ``(hit_or_none, attempted)`` — ``attempted`` is True iff at least
+        one pubkey-group had enough signatures for the smallest-min-sigs
+        hypothesis (top_bits_zero(8) = 33 sigs). Used by callers to give
+        an honest "we tried" vs "we skipped due to too few sigs" verdict.
+    """
+    from wallet_self_audit.lattice.hnp_construct import min_signatures_required
+
+    min_sigs_for_smallest_hyp = min_signatures_required(8)
+    attempted = False
+    by_pub: dict[bytes, list[SignatureRecord]] = defaultdict(list)
+    for rec in records:
+        by_pub[rec.pubkey_compressed].append(rec)
+    for pub, sig_list in by_pub.items():
+        if len(sig_list) >= min_sigs_for_smallest_hyp:
+            attempted = True
+        hit = attempt_recovery(sig_list, pub)
+        if hit is not None:
+            return hit, True
+    return None, attempted
+
+
+def _verdict_from_lattice(
+    *,
+    address: str,
+    audit_id: str,
+    hit: LatticeHit,
+) -> VerdictWithoutKey:
+    """Build the VULNERABLE verdict for an HNP/lattice recovery."""
+    return VerdictWithoutKey(
+        address=address,
+        status="VULNERABLE",
+        finding="lattice_bias",
+        confidence=0.97,
+        key_fingerprint=hit.key_fingerprint,
+        recommendation=(
+            "Lattice / HNP attack succeeded against biased nonces. The "
+            "private key controlling this wallet is recoverable from "
+            "public chain data given the bias structure detected by the "
+            "audit. Move funds to a fresh wallet IMMEDIATELY."
+        ),
+        evidence_refs=(),
+        audit_id=audit_id,
+        checks_performed=("r_collision", "lattice_bias"),
     )
 
 
