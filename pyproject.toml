@@ -197,6 +197,13 @@ markers = [
 [tool.coverage.run]
 source = ["src/wallet_self_audit"]
 branch = true
+# pytest-xdist + multiprocessing.Pool: tell coverage.py to track child
+# processes and merge per-worker .coverage.* files at the end. Without
+# this, coverage drops by ~15 percentage points on Linux CI relative to
+# a single-process run.
+concurrency = ["multiprocessing", "thread"]
+parallel = true
+sigterm = true
 
 [tool.coverage.report]
 exclude_lines = [
