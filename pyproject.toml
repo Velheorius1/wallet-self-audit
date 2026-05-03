@@ -129,6 +129,8 @@ ignore = [
     "E501",     # long lines in fixtures
     "PLR0911",
     "PLR0912",
+    "N802",     # math notation Q (ECDSA pubkey) is canonical in tests
+    "N806",     # ditto for Q-named locals
 ]
 "scripts/**" = ["S603", "S607", "PLC0415"]
 
