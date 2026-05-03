@@ -73,7 +73,11 @@ jobs:
       - name: Run tests with output capture
         run: |
           set -o pipefail
-          uv run pytest -ra 2>&1 | tee test_output.log
+          # Exclude @pytest.mark.lattice tests — pure-Python LLL on a
+          # 35-dimension Boneh-Venkatesan basis takes ~5 minutes per
+          # OS/Python combination. Run them locally with
+          # ``pytest -m lattice`` or via a future nightly workflow.
+          uv run pytest -ra -m "not lattice" 2>&1 | tee test_output.log
 
       # CRITICAL: sentinel leak gate. Combines test output + audit log,
       # greps for known test privkey fingerprint. Build fails on any hit.
