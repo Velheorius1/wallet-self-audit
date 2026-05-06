@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 
-from hypothesis import given
+import pytest
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from wallet_self_audit.verdict import VerdictWithoutKey
@@ -73,8 +75,6 @@ def test_recommendation_with_long_hex_run_rejected(prefix: str, suffix: str, hex
     The leak-shape we defend against is a 32-byte private key rendered as
     64 contiguous hex chars; any contiguous run > 16 is suspicious.
     """
-    import pytest
-
     leak_string = f"{prefix}{hex_run}{suffix}"
 
     with pytest.raises(ValueError, match="possible private key leak"):
@@ -100,10 +100,6 @@ def test_recommendation_with_no_long_hex_run_accepted(text: str) -> None:
     English words, etc.). This is the regression-test counterpart to the
     earlier total-count check that wrongly rejected real recommendations.
     """
-    import re
-
-    from hypothesis import assume
-
     assume(not re.search(r"[0-9a-fA-F]{17,}", text))
 
     v = VerdictWithoutKey(

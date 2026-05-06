@@ -1,19 +1,37 @@
 """``VerdictWithoutKey`` — the central output contract of wallet-self-audit.
 
-The class is structurally incapable of carrying a 32-byte private key. This
-is enforced via three layers:
+The class makes accidental private-key leakage in our own code structurally
+implausible. Layered defenses:
 
-1. **frozen=True** — fields cannot be mutated after construction.
-2. **slots=True** — no ``__dict__``; ``object.__setattr__`` cannot inject new
-   attributes silently.
-3. **__post_init__ class invariant** — rejects any string field (other than
-   the ``audit_id``/txid allowlist) that contains > 16 hex characters.
+1. **``@final`` + ``__init_subclass__`` raise** — subclasses cannot override
+   ``__post_init__`` to bypass the invariants below.
+2. **``frozen=True``** — fields cannot be mutated after construction.
+3. **``slots=True``** — no ``__dict__``; ``object.__setattr__`` cannot inject
+   new attributes silently.
+4. **``__post_init__`` class invariant** — rejects free-form text fields
+   (``recommendation``, ``finding``) containing a contiguous hex run > 16
+   chars; validates ``audit_id`` parses as a UUID; constrains
+   ``key_fingerprint`` to exactly 16 lowercase hex chars or None;
+   constrains ``evidence_refs`` to 64-char lowercase hex (txid shape);
+   strict-types ``confidence`` (rejects ``bool``).
 
 In addition:
 - ``evidence_refs`` and ``checks_performed`` are ``tuple`` (not ``list``) so
   they cannot be mutated even on a frozen instance (frozen is shallow).
 - ``checks_performed`` is **required** to kill the "false-SAFE" failure mode:
   every ``SAFE`` verdict must enumerate which checks were actually run.
+
+Known out-of-scope leak channels (DECISIONS.md scopes the invariant as
+defense against ACCIDENTAL leakage in our own code, not active in-process
+attackers):
+- ``object.__new__`` + slot-write bypasses ``__post_init__`` entirely.
+- A non-hex separator (space, ``\\x`` from ``bytes.__repr__``) splits a
+  64-hex secret into ≤16-char chunks that pass the run-check.
+- ``address`` accepts arbitrary strings; a Bitcoin-format check is left
+  to a follow-up PR (heavier dependency on bech32/base58 parsers).
+- ``evidence_refs`` accepts any 64-char lowercase hex; without on-chain
+  verification, a 32-byte secret rendered as 64 hex passes verbatim. The
+  Phase 8 cross-renderer leak gate guards reports against this channel.
 
 See ``tests/unit/test_verdict.py`` and ``tests/property/test_verdict_invariant.py``
 for the invariant test corpus.
@@ -22,15 +40,9 @@ for the invariant test corpus.
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass
-from typing import Final, Literal, NewType
-
-# Type aliases for fields that *legitimately* contain hex characters and would
-# otherwise trip the >16-hex-run invariant.
-AuditId = NewType("AuditId", str)
-Txid = NewType("Txid", str)
-Fingerprint16 = NewType("Fingerprint16", str)
-
+from typing import Final, Literal, final
 
 Status = Literal["SAFE", "SUSPICIOUS", "VULNERABLE"]
 Finding = Literal[
@@ -101,6 +113,21 @@ def _is_lowercase_hex(s: str, length: int) -> bool:
     return len(s) == length and all(c in "0123456789abcdef" for c in s)
 
 
+def _is_valid_uuid(s: str) -> bool:
+    """Return True iff *s* parses as a valid UUID (any version, dashed or hex).
+
+    The class invariant exempts ``audit_id`` from the hex-run check on the
+    promise that it is uuid-shaped. This validator enforces that promise so
+    a 32-/48-hex segment of a private key cannot pose as an ``audit_id``.
+    """
+    try:
+        uuid.UUID(s)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
+@final
 @dataclass(frozen=True, slots=True, kw_only=True)
 class VerdictWithoutKey:
     """Audit verdict — structurally incapable of carrying a private key.
@@ -114,7 +141,8 @@ class VerdictWithoutKey:
             32-byte secret. Computed as ``sha256(d || domain_sep)[:16]`` only
             inside coincurve C; ``d`` never materializes in Python int.
         recommendation: Human-readable next step ("Move funds to a fresh
-            wallet now."). Must NOT contain > 16 hex chars.
+            wallet now."). Must NOT contain a contiguous hex run longer
+            than 16 chars.
         evidence_refs: Tuple of 64-char lowercase hex txids — public chain
             references, never raw signature components (r, s, z).
         audit_id: UUID v4 string for cross-referencing audit_chain.jsonl.
@@ -133,8 +161,28 @@ class VerdictWithoutKey:
     audit_id: str
     checks_performed: tuple[str, ...]
 
+    # Block subclassing at runtime. ``@final`` is a type-checker hint;
+    # ``__init_subclass__`` is the actual fence. A subclass that overrode
+    # ``__post_init__`` with a no-op would pass ``isinstance(v, VerdictWithoutKey)``
+    # while bypassing every leak-prevention check below.
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        raise TypeError(
+            "VerdictWithoutKey is @final — subclassing is forbidden because a "
+            "subclass could override __post_init__ and bypass the no-key-leak "
+            "invariant."
+        )
+
     def __post_init__(self) -> None:
-        # 1. Confidence in valid range.
+        # 1. Confidence: strict numeric type + valid range.
+        # ``bool`` is a subclass of ``int``, so ``True == 1`` would silently
+        # pass a range check; reject explicitly. Accept ``int`` (arithmetic
+        # convenience) and ``float`` only.
+        if isinstance(self.confidence, bool):
+            raise TypeError(f"confidence must be int or float, got bool ({self.confidence!r})")
+        if not isinstance(self.confidence, (int, float)):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(
+                f"confidence must be int or float, got {type(self.confidence).__name__}"
+            )
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0.0, 1.0], got {self.confidence!r}")
 
@@ -194,6 +242,13 @@ class VerdictWithoutKey:
         # 7. Logical consistency: SAFE status must have finding=none.
         if self.status == "SAFE" and self.finding != "none":
             raise ValueError(f"status=SAFE requires finding=none, got finding={self.finding!r}")
+
+        # 8. audit_id must be a valid UUID. The hex-run check exempts this
+        #    field on the promise it is uuid-shaped — without parsing we'd
+        #    accept ``audit_id="<48 hex chars of a privkey>"`` because the
+        #    constructor does not otherwise constrain its content.
+        if not _is_valid_uuid(self.audit_id):
+            raise ValueError(f"audit_id must be a valid UUID string (got {self.audit_id!r})")
 
     def to_public_json(self) -> dict[str, object]:
         """Return a dict containing exactly the allowlisted public fields.

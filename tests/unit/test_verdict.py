@@ -148,6 +148,30 @@ def test_confidence_in_range_accepted(conf: float) -> None:
     assert v.confidence == conf
 
 
+def test_confidence_bool_rejected() -> None:
+    """``bool`` is a subclass of ``int`` so ``True`` would silently pass the
+    range check (``True == 1``). Reject explicitly to close that channel."""
+    with pytest.raises(TypeError, match="confidence must be int or float, got bool"):
+        _safe_verdict(confidence=True)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="confidence must be int or float, got bool"):
+        _safe_verdict(confidence=False)  # type: ignore[arg-type]
+
+
+def test_confidence_non_numeric_rejected() -> None:
+    with pytest.raises(TypeError, match="confidence must be int or float"):
+        _safe_verdict(confidence="0.5")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="confidence must be int or float"):
+        _safe_verdict(confidence=None)  # type: ignore[arg-type]
+
+
+def test_confidence_int_in_range_accepted() -> None:
+    """Plain int is accepted for arithmetic convenience (e.g. ``confidence=1``)."""
+    v = _safe_verdict(confidence=0)
+    assert v.confidence == 0
+    v = _safe_verdict(confidence=1)
+    assert v.confidence == 1
+
+
 # ---------------------------------------------------------------------------
 # 6. key_fingerprint format.
 # ---------------------------------------------------------------------------
@@ -258,6 +282,55 @@ def test_realistic_recommendation_accepted(rec: str) -> None:
 # Note: we don't test the hex-run check on ``finding`` because the Literal
 # type check fires first for any invalid value, and no valid Finding literal
 # contains a 17-char hex run by design.
+
+
+# ---------------------------------------------------------------------------
+# 7b. audit_id must parse as a valid UUID — closes the channel where a
+#     32-/48-hex segment of a private key impersonates an audit_id.
+# ---------------------------------------------------------------------------
+def test_audit_id_valid_uuid_with_dashes_accepted() -> None:
+    v = _safe_verdict(audit_id="11111111-2222-3333-4444-555555555555")
+    assert v.audit_id == "11111111-2222-3333-4444-555555555555"
+
+
+def test_audit_id_valid_uuid_hex_accepted() -> None:
+    """``uuid.UUID`` parses 32-hex form too (no dashes)."""
+    v = _safe_verdict(audit_id="11111111222233334444555555555555")
+    assert v.audit_id == "11111111222233334444555555555555"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        # Privkey-shape: 48 hex chars, longer than UUID hex form
+        "deadbeefcafebabe1234567890abcdefdeadbeefcafebabe",
+        # Privkey-shape: 32 hex but wrong format (no UUID structure rules)
+        # 32 chars of pure 'g' — uuid.UUID rejects (g not hex)
+        "gggggggggggggggggggggggggggggggg",
+        # Random non-UUID string
+        "not-a-uuid",
+        # Empty
+        "",
+        # Almost-UUID with wrong group count
+        "11111111-2222-3333-4444",
+    ],
+)
+def test_audit_id_invalid_uuid_rejected(bad: str) -> None:
+    with pytest.raises(ValueError, match="audit_id must be a valid UUID"):
+        _safe_verdict(audit_id=bad)
+
+
+# ---------------------------------------------------------------------------
+# 7c. Subclassing is forbidden — a subclass overriding ``__post_init__``
+#     would bypass every leak-prevention check.
+# ---------------------------------------------------------------------------
+def test_cannot_subclass_verdict_without_key() -> None:
+    from wallet_self_audit.verdict import VerdictWithoutKey
+
+    with pytest.raises(TypeError, match="VerdictWithoutKey is @final"):
+
+        class _Evil(VerdictWithoutKey):
+            pass
 
 
 # ---------------------------------------------------------------------------
