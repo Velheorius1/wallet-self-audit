@@ -21,11 +21,12 @@ for the invariant test corpus.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final, Literal, NewType
 
 # Type aliases for fields that *legitimately* contain hex characters and would
-# otherwise trip the > 16-hex-char invariant.
+# otherwise trip the >16-hex-run invariant.
 AuditId = NewType("AuditId", str)
 Txid = NewType("Txid", str)
 Fingerprint16 = NewType("Fingerprint16", str)
@@ -42,10 +43,28 @@ Finding = Literal[
 ]
 
 
-# Maximum number of hex characters allowed in any free-form field
-# (``recommendation``, ``finding``). 16 chars = 8 bytes, well below the 32-byte
-# secret threshold. Other fields are constrained by their own structural rules.
-_MAX_HEX_CHARS_IN_FREEFORM_FIELD: Final[int] = 16
+# Maximum length of a contiguous hex run allowed in any free-form text field
+# (``recommendation``, ``finding``). 16 hex chars = 8 bytes, well below the
+# 32-byte private-key threshold. We check a *contiguous run*, not a total
+# count: natural-language recommendations contain many incidental ``a``-``f``
+# letters but never a 17-char hex *run* unless something is leaking.
+#
+# Word boundaries (``\b``) are intentionally NOT used: any 17-char hex run
+# is suspicious regardless of surrounding context. ``logging/redaction.py``
+# uses ``\b[0-9a-fA-F]{64}\b`` for log-line scrubbing because there the
+# downstream tool (e.g. log search) may have already trimmed punctuation;
+# ``VerdictWithoutKey`` is the upstream construction-time barrier and
+# rejects strictly. The two regexes are deliberately not unified.
+#
+# DECISIONS.md "Hex redaction regex uses non-hex anchors, NOT \b" defines
+# this barrier as defense-in-depth against ACCIDENTAL leakage by our own
+# code; an active attacker can split a 64-hex secret with non-hex
+# separators (e.g. Unicode lookalikes) and bypass the contiguous-run check.
+# That class of bypass is intentionally OUT of this barrier's scope —
+# Python is not memory-safe; an attacker with code execution can always
+# bypass via ``object.__setattr__`` regardless.
+_MAX_HEX_RUN_IN_FREEFORM_FIELD: Final[int] = 16
+_HEX_RUN_RE: Final[re.Pattern[str]] = re.compile(r"[0-9a-fA-F]{17,}")
 
 
 # Allowlist of fields that ``to_public_json`` exposes. Updating this list is
@@ -65,9 +84,16 @@ _PUBLIC_FIELDS: Final[frozenset[str]] = frozenset(
 )
 
 
-def _hex_char_count(s: str) -> int:
-    """Count [0-9a-fA-F] characters in *s*. Used by the class invariant."""
-    return sum(1 for c in s if c in "0123456789abcdefABCDEF")
+def _has_long_hex_run(s: str) -> bool:
+    """Return True iff *s* contains a contiguous hex-character run longer
+    than ``_MAX_HEX_RUN_IN_FREEFORM_FIELD``.
+
+    Used by the class invariant to catch a 32-byte (64-hex) secret leaking
+    into a free-form text field, while letting natural-language strings —
+    which contain many incidental ``a``-``f`` letters but no long contiguous
+    hex sequence — pass through.
+    """
+    return _HEX_RUN_RE.search(s) is not None
 
 
 def _is_lowercase_hex(s: str, length: int) -> bool:
@@ -134,16 +160,21 @@ class VerdictWithoutKey:
                     f"evidence_refs entries must be 64-char lowercase hex (got {ref!r})"
                 )
 
-        # 5. Class invariant: free-form text fields must NOT contain
-        #    > 16 hex chars. This catches accidental privkey leakage.
-        #    Note: ``address`` is excluded because bech32 addresses (bc1q...)
-        #    legitimately contain many hex-like characters.
+        # 5. Class invariant: free-form text fields must NOT contain a
+        #    contiguous hex *run* longer than 16 chars. A 32-byte secret
+        #    rendered as 64 contiguous hex chars is caught; natural-language
+        #    recommendations like "Move funds to a freshly-generated wallet"
+        #    pass even though they contain many incidental a-f letters,
+        #    because there is never a 17-char unbroken hex sequence in
+        #    real text. ``address`` is excluded — bech32 addresses (bc1q...)
+        #    legitimately contain mixed hex-like characters that get broken
+        #    by the bech32 separator and non-hex characters anyway.
         for fname in ("recommendation", "finding"):
             value = getattr(self, fname)
-            if _hex_char_count(value) > _MAX_HEX_CHARS_IN_FREEFORM_FIELD:
+            if _has_long_hex_run(value):
                 raise ValueError(
-                    f"field {fname!r} contains > {_MAX_HEX_CHARS_IN_FREEFORM_FIELD} "
-                    f"hex chars (possible private key leak)"
+                    f"field {fname!r} contains a hex run longer than "
+                    f"{_MAX_HEX_RUN_IN_FREEFORM_FIELD} chars (possible private key leak)"
                 )
 
         # 6. status / finding are constrained by Literal types — runtime check

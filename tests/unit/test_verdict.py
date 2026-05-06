@@ -5,7 +5,8 @@ Invariants tested:
 - slots=True: ``v.__dict__`` raises ``AttributeError``; cannot inject new fields.
 - ``evidence_refs`` is ``tuple`` (immutable even on a frozen instance).
 - ``__post_init__`` rejects:
-  - Free-form text fields with > 16 hex chars.
+  - Free-form text fields with a contiguous hex *run* longer than 16 chars
+    (catches privkey-shaped leaks while accepting natural-language strings).
   - confidence outside [0, 1].
   - key_fingerprint not exactly 16 lowercase hex.
   - non-tuple evidence_refs / checks_performed.
@@ -186,7 +187,10 @@ def test_key_fingerprint_invalid_rejected(bad: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. Class invariant: > 16 hex chars in free-form text rejected.
+# 7. Class invariant: contiguous hex *run* > 16 chars in free-form text rejected.
+#    The check is on a contiguous run, not a total count, so natural-language
+#    recommendations (which contain many incidental a-f letters but never a
+#    17-char unbroken hex sequence) pass through unchanged.
 # ---------------------------------------------------------------------------
 def test_recommendation_with_long_hex_rejected() -> None:
     """A 64-hex string in recommendation looks like a leaked privkey."""
@@ -195,21 +199,65 @@ def test_recommendation_with_long_hex_rejected() -> None:
         _safe_verdict(recommendation=f"Found something: {leak}")
 
 
-def test_recommendation_with_short_hex_accepted() -> None:
-    """≤16 hex chars total in recommendation is allowed."""
-    # The hex-char count is over the WHOLE string. Use words containing
-    # only non-hex letters (g-z) to avoid accidental over-count.
-    # "hint" = h,i,n,t — none are hex. 16 hex chars in the suffix = 16 total. OK.
+def test_recommendation_with_exact_17_char_hex_run_rejected() -> None:
+    """Boundary: a 17-char contiguous hex run is the smallest rejected value."""
+    with pytest.raises(ValueError, match="possible private key leak"):
+        _safe_verdict(recommendation="see: " + "0" * 17)
+
+
+def test_recommendation_with_exact_16_char_hex_run_accepted() -> None:
+    """Boundary: exactly 16 contiguous hex chars is allowed."""
     v = _safe_verdict(recommendation="hint: 0123456789abcdef")
     assert "0123456789abcdef" in v.recommendation
 
 
-def test_finding_with_long_hex_rejected_at_literal_check() -> None:
-    """Even if the literal type check were bypassed, hex-char count catches it."""
-    # The Literal check fires first for invalid finding names. To exercise the
-    # hex-count check on `finding`, we'd need a long-hex-but-also-valid Literal
-    # — which doesn't exist by design. So we only test recommendation here.
-    pass
+def test_recommendation_two_short_hex_runs_separated_by_non_hex_accepted() -> None:
+    """Two 16-char hex runs separated by a space carry no contiguous 17-run."""
+    v = _safe_verdict(recommendation="0123456789abcdef DEADBEEFCAFEBABE")
+    assert "0123456789abcdef" in v.recommendation
+
+
+@pytest.mark.parametrize(
+    "rec",
+    [
+        # Realistic recommendations that contain many incidental a-f letters
+        # but no 17-char hex run. These regressed under the old total-count
+        # check (the longest, 172 chars / 52 incidental hex chars, failed).
+        (
+            "Move funds to a freshly-generated wallet immediately. The detected "
+            "r-collision means anyone watching the chain can derive your private "
+            "key from public signature data alone."
+        ),
+        (
+            "Generate a new seed in an audited wallet (Sparrow, Bitcoin Core 25+, "
+            "Electrum 4.5+) and migrate the balance before the attacker re-uses "
+            "the recovered key."
+        ),
+        (
+            "Brainwallet phrase detected: change to a fresh BIP-39 seed from a "
+            "secure source, then move funds. Do not re-use the same passphrase "
+            "anywhere else, including for derived addresses."
+        ),
+        # Long form using a-f heavy English words
+        (
+            "Suspicious entropy detected: aborted, bad fold cafe, decade. "
+            "Recommendation: defer further deposits until a clean seed is "
+            "available."
+        ),
+    ],
+)
+def test_realistic_recommendation_accepted(rec: str) -> None:
+    """Regression: the old total-hex-count check rejected real recommendations.
+    The contiguous-run check accepts them while still rejecting privkey-shaped
+    hex leaks (covered by ``test_recommendation_with_long_hex_rejected``).
+    """
+    v = _safe_verdict(recommendation=rec)
+    assert v.recommendation == rec
+
+
+# Note: we don't test the hex-run check on ``finding`` because the Literal
+# type check fires first for any invalid value, and no valid Finding literal
+# contains a 17-char hex run by design.
 
 
 # ---------------------------------------------------------------------------
