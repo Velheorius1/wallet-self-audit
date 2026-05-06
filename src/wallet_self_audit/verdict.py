@@ -1,19 +1,33 @@
 """``VerdictWithoutKey`` — the central output contract of wallet-self-audit.
 
-The class makes accidental private-key leakage in our own code structurally
-implausible. Layered defenses:
+The class is a frozen-slots dataclass whose construction is validated at
+``__post_init__`` to make accidental private-key leakage in our own code
+hard to commit by mistake. Layered defenses (only ``frozen``+``slots`` are
+truly structural — the rest are runtime checks):
 
-1. **``@final`` + ``__init_subclass__`` raise** — subclasses cannot override
-   ``__post_init__`` to bypass the invariants below.
-2. **``frozen=True``** — fields cannot be mutated after construction.
-3. **``slots=True``** — no ``__dict__``; ``object.__setattr__`` cannot inject
-   new attributes silently.
-4. **``__post_init__`` class invariant** — rejects free-form text fields
-   (``recommendation``, ``finding``) containing a contiguous hex run > 16
-   chars; validates ``audit_id`` parses as a UUID; constrains
-   ``key_fingerprint`` to exactly 16 lowercase hex chars or None;
-   constrains ``evidence_refs`` to 64-char lowercase hex (txid shape);
-   strict-types ``confidence`` (rejects ``bool``).
+1. **``frozen=True``** (structural) — fields cannot be mutated after construction.
+2. **``slots=True``** (structural) — no ``__dict__``; ``object.__setattr__``
+   cannot inject new attributes silently.
+3. **``@final`` + ``__init_subclass__`` raise** (runtime) — subclasses cannot
+   override ``__post_init__`` to bypass the invariants below.
+4. **``__post_init__`` class invariant** (runtime) — applies the rule below
+   to every field at construction time.
+
+**Field classification rule** (the load-bearing invariant, extend it when
+adding new fields):
+
+- *Free-form text* (``recommendation``, ``finding``) — rejects a
+  contiguous hex run > 16 chars; a 32-byte secret rendered as 64 hex is
+  the leak shape we defend against.
+- *Shape-validated tokens* (``key_fingerprint`` exactly 16-hex,
+  ``evidence_refs`` 64-hex txid tuple, ``audit_id`` 36-char dashed UUID,
+  non-nil) — exact format check rejects privkey-shape impostors.
+- *Enums* (``status``, ``finding`` again) — runtime ``Literal`` check
+  for defense in depth against ``type: ignore`` callsites.
+- *Numeric* (``confidence``) — strict ``int``/``float`` type
+  (rejects ``bool``) plus range check.
+- *Currently unvalidated* (``address``, ``checks_performed``) — see
+  out-of-scope channels below.
 
 In addition:
 - ``evidence_refs`` and ``checks_performed`` are ``tuple`` (not ``list``) so
@@ -113,18 +127,42 @@ def _is_lowercase_hex(s: str, length: int) -> bool:
     return len(s) == length and all(c in "0123456789abcdef" for c in s)
 
 
-def _is_valid_uuid(s: str) -> bool:
-    """Return True iff *s* parses as a valid UUID (any version, dashed or hex).
+# Canonical 36-char dashed UUID positions: 8-4-4-4-12 hex chunks.
+_UUID_DASH_POSITIONS: Final[tuple[int, ...]] = (8, 13, 18, 23)
+_UUID_CANONICAL_LEN: Final[int] = 36
+_UUID_NIL: Final[uuid.UUID] = uuid.UUID(int=0)
+
+
+def _is_valid_uuid(s: object) -> bool:
+    """Return True iff *s* is a canonical dashed UUID (and not the nil UUID).
 
     The class invariant exempts ``audit_id`` from the hex-run check on the
-    promise that it is uuid-shaped. This validator enforces that promise so
-    a 32-/48-hex segment of a private key cannot pose as an ``audit_id``.
+    promise that it is uuid-shaped. ``uuid.UUID(s)`` alone is too permissive
+    — it accepts the 32-hex no-dash form, which is exactly the shape of
+    a 32-byte slice of a private key. Combined with ``key_fingerprint``
+    (16 hex), that would carry 48 hex chars (24 bytes) of secret through
+    fields the contract claims are leak-safe. Requiring the canonical
+    36-char dashed form (``8-4-4-4-12`` hex) removes that channel — a
+    valid audit_id has structure no privkey-shape string carries.
+
+    Nil UUID is rejected: it is the common test/placeholder value and a
+    real audit chain entry should always have a unique id.
+
+    The parameter is typed ``object`` (not ``str``) so callsites passing
+    ``bytes`` / ``int`` / ``None`` via ``type: ignore`` or from JSON parsers
+    are rejected as invalid rather than crashing on attribute access.
     """
-    try:
-        uuid.UUID(s)
-    except (ValueError, AttributeError, TypeError):
+    if not isinstance(s, str):
         return False
-    return True
+    if len(s) != _UUID_CANONICAL_LEN:
+        return False
+    if any(s[pos] != "-" for pos in _UUID_DASH_POSITIONS):
+        return False
+    try:
+        parsed = uuid.UUID(s)
+    except ValueError:
+        return False
+    return parsed != _UUID_NIL
 
 
 @final
@@ -145,7 +183,8 @@ class VerdictWithoutKey:
             than 16 chars.
         evidence_refs: Tuple of 64-char lowercase hex txids — public chain
             references, never raw signature components (r, s, z).
-        audit_id: UUID v4 string for cross-referencing audit_chain.jsonl.
+        audit_id: 36-char dashed UUID string (any version, must not be nil)
+            for cross-referencing audit_chain.jsonl.
         checks_performed: Tuple of vector names that ran (e.g.
             ``("milk_sad", "randstorm", "r_collision")``). REQUIRED so a
             ``SAFE`` verdict can never be unqualified.
@@ -243,12 +282,16 @@ class VerdictWithoutKey:
         if self.status == "SAFE" and self.finding != "none":
             raise ValueError(f"status=SAFE requires finding=none, got finding={self.finding!r}")
 
-        # 8. audit_id must be a valid UUID. The hex-run check exempts this
-        #    field on the promise it is uuid-shaped — without parsing we'd
-        #    accept ``audit_id="<48 hex chars of a privkey>"`` because the
-        #    constructor does not otherwise constrain its content.
+        # 8. audit_id must be a 36-char dashed UUID (any version, non-nil).
+        #    The hex-run check exempts this field on the promise it is
+        #    uuid-shaped. ``uuid.UUID(s)`` alone accepts the 32-hex no-dash
+        #    form, which is exactly the shape of a 32-byte slice of a
+        #    private key — see ``_is_valid_uuid`` for the canonical-form
+        #    requirement that closes that channel.
         if not _is_valid_uuid(self.audit_id):
-            raise ValueError(f"audit_id must be a valid UUID string (got {self.audit_id!r})")
+            raise ValueError(
+                f"audit_id must be a 36-char dashed non-nil UUID (got {self.audit_id!r})"
+            )
 
     def to_public_json(self) -> dict[str, object]:
         """Return a dict containing exactly the allowlisted public fields.
