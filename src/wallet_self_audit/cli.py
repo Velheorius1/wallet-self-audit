@@ -554,6 +554,93 @@ def nonce_audit_cmd(
         client.close()
 
 
+@app.command(name="explain")
+def explain_cmd(
+    verdict_file: str = typer.Argument(
+        ...,
+        metavar="VERDICT_JSON",
+        help="Path to a verdict JSON file (the output of `wsa prng-audit --output json` etc).",
+    ),
+    model: str = typer.Option(
+        "claude-opus-4-7",
+        "--model",
+        help="Claude model id (default: claude-opus-4-7).",
+    ),
+    fallback: bool = typer.Option(
+        True,
+        "--fallback/--no-fallback",
+        help=(
+            "If the LLM draft fails the deterministic post-check, fall back to "
+            "the local Markdown renderer instead of raising."
+        ),
+    ),
+) -> None:
+    """Render a plain-language Markdown report for a verdict via Claude SDK.
+
+    The verdict JSON must already exist on disk (use `wsa prng-audit
+    --output json > verdict.json`). This command never reaches into the
+    audit pipeline; it only formats the public verdict surface.
+    """
+    import json as _json
+
+    from wallet_self_audit.reporting.claude_explain import (
+        ExplainPostCheckFailed,
+        explain_verdict,
+    )
+    from wallet_self_audit.reporting.render_md import render_md
+    from wallet_self_audit.verdict import VerdictWithoutKey
+
+    configure_logging()
+
+    path = Path(verdict_file)
+    if not path.exists():
+        console.print(f"[red]error:[/red] verdict file not found: {path}")
+        raise typer.Exit(code=2)
+    raw_obj: object = _json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw_obj, dict):
+        console.print("[red]error:[/red] verdict JSON must be an object.")
+        raise typer.Exit(code=2)
+    raw: dict[str, object] = raw_obj  # pyright: ignore[reportUnknownVariableType,reportAssignmentType]
+
+    def _str_list(key: str) -> tuple[str, ...]:
+        val = raw.get(key, [])
+        if not isinstance(val, list):
+            return ()
+        return tuple(str(item) for item in val)  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+
+    try:
+        verdict = VerdictWithoutKey(
+            address=str(raw["address"]),
+            status=raw["status"],  # type: ignore[arg-type]
+            finding=raw["finding"],  # type: ignore[arg-type]
+            confidence=float(raw["confidence"]),  # type: ignore[arg-type]
+            key_fingerprint=(str(raw["key_fingerprint"]) if raw.get("key_fingerprint") else None),
+            recommendation=str(raw["recommendation"]),
+            evidence_refs=_str_list("evidence_refs"),
+            audit_id=str(raw["audit_id"]),
+            checks_performed=_str_list("checks_performed"),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        console.print(f"[red]error:[/red] invalid verdict JSON: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    try:
+        markdown, _provenance = explain_verdict(verdict, model=model)
+    except ExplainPostCheckFailed as exc:
+        if not fallback:
+            console.print(f"[red]LLM draft rejected:[/red] {exc}")
+            raise typer.Exit(code=3) from exc
+        console.print(f"[yellow]LLM draft rejected ({exc}); rendering locally.[/yellow]")
+        markdown = render_md(verdict)
+    except (RuntimeError, OSError) as exc:
+        if not fallback:
+            console.print(f"[red]error invoking Claude SDK:[/red] {exc}")
+            raise typer.Exit(code=3) from exc
+        console.print(f"[yellow]Claude SDK error ({exc}); rendering locally.[/yellow]")
+        markdown = render_md(verdict)
+    console.print(markdown)
+
+
 @app.command(name="version")
 def version_cmd() -> None:
     """Show version and exit."""
