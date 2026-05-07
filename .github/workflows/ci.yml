@@ -28,6 +28,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # gitleaks-action@v2 does a range scan on PR events
+          # (`<base>^..<head>`), which requires full history. Default
+          # fetch-depth=1 leaves the base commit unreachable and gitleaks
+          # exits non-zero with "ambiguous argument".
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
