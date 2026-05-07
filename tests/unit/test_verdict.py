@@ -5,7 +5,8 @@ Invariants tested:
 - slots=True: ``v.__dict__`` raises ``AttributeError``; cannot inject new fields.
 - ``evidence_refs`` is ``tuple`` (immutable even on a frozen instance).
 - ``__post_init__`` rejects:
-  - Free-form text fields with > 16 hex chars.
+  - Free-form text fields with a contiguous hex *run* longer than 16 chars
+    (catches privkey-shaped leaks while accepting natural-language strings).
   - confidence outside [0, 1].
   - key_fingerprint not exactly 16 lowercase hex.
   - non-tuple evidence_refs / checks_performed.
@@ -35,7 +36,7 @@ def _safe_verdict(**overrides: object) -> VerdictWithoutKey:
         "key_fingerprint": None,
         "recommendation": "No issues detected.",
         "evidence_refs": (),
-        "audit_id": "00000000-0000-0000-0000-000000000000",
+        "audit_id": "11111111-1111-1111-1111-111111111111",
         "checks_performed": ("milk_sad", "randstorm"),
     }
     defaults.update(overrides)
@@ -147,6 +148,39 @@ def test_confidence_in_range_accepted(conf: float) -> None:
     assert v.confidence == conf
 
 
+@pytest.mark.parametrize("bad", [True, False])
+def test_confidence_bool_rejected(bad: bool) -> None:
+    """``bool`` is a subclass of ``int`` so ``True``/``False`` would silently
+    pass the range check (``True == 1``, ``False == 0``). Reject explicitly
+    to close that channel."""
+    with pytest.raises(TypeError, match="confidence must be int or float, got bool"):
+        _safe_verdict(confidence=bad)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("bad", ["0.5", None, [0.5], {0.5: 1}])
+def test_confidence_non_numeric_rejected(bad: object) -> None:
+    with pytest.raises(TypeError, match="confidence must be int or float"):
+        _safe_verdict(confidence=bad)  # type: ignore[arg-type]
+
+
+def test_confidence_int_in_range_accepted() -> None:
+    """Plain int is accepted for arithmetic convenience (e.g. ``confidence=1``)."""
+    v = _safe_verdict(confidence=0)
+    assert v.confidence == 0
+    v = _safe_verdict(confidence=1)
+    assert v.confidence == 1
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_confidence_nan_inf_rejected(bad: float) -> None:
+    """NaN comparisons return False so ``0.0 <= nan <= 1.0`` is False — the
+    range check rejects it. ±Inf is out of range. Pin both behaviors so a
+    refactor of the range check (e.g. switching to ``math.isfinite``)
+    cannot silently regress."""
+    with pytest.raises(ValueError, match="confidence must be in"):
+        _safe_verdict(confidence=bad)
+
+
 # ---------------------------------------------------------------------------
 # 6. key_fingerprint format.
 # ---------------------------------------------------------------------------
@@ -186,7 +220,10 @@ def test_key_fingerprint_invalid_rejected(bad: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. Class invariant: > 16 hex chars in free-form text rejected.
+# 7. Class invariant: contiguous hex *run* > 16 chars in free-form text rejected.
+#    The check is on a contiguous run, not a total count, so natural-language
+#    recommendations (which contain many incidental a-f letters but never a
+#    17-char unbroken hex sequence) pass through unchanged.
 # ---------------------------------------------------------------------------
 def test_recommendation_with_long_hex_rejected() -> None:
     """A 64-hex string in recommendation looks like a leaked privkey."""
@@ -195,21 +232,168 @@ def test_recommendation_with_long_hex_rejected() -> None:
         _safe_verdict(recommendation=f"Found something: {leak}")
 
 
-def test_recommendation_with_short_hex_accepted() -> None:
-    """≤16 hex chars total in recommendation is allowed."""
-    # The hex-char count is over the WHOLE string. Use words containing
-    # only non-hex letters (g-z) to avoid accidental over-count.
-    # "hint" = h,i,n,t — none are hex. 16 hex chars in the suffix = 16 total. OK.
+def test_recommendation_with_uppercase_long_hex_rejected() -> None:
+    """Mutation guard: regex is ``[0-9a-fA-F]{17,}`` — narrowing it to
+    ``[0-9a-f]{17,}`` would survive every other test, so pin uppercase
+    rejection explicitly."""
+    leak = "ABCDEF" * 12  # 72 uppercase hex chars
+    with pytest.raises(ValueError, match="possible private key leak"):
+        _safe_verdict(recommendation=f"Found something: {leak}")
+
+
+def test_finding_runtime_check_rejects_64hex_first() -> None:
+    """Defense-in-depth: hex-run check runs *before* the Literal check, so an
+    invalid ``finding`` containing a 64-hex run is reported as a privkey-leak,
+    not as ``invalid finding``. This is reachable only via ``type: ignore``
+    callsites — the Literal type forbids it at type-check time."""
+    leak = "deadbeef" * 8  # 64 hex
+    with pytest.raises(ValueError, match="possible private key leak"):
+        _safe_verdict(finding=leak)  # type: ignore[arg-type]
+
+
+def test_recommendation_with_exact_17_char_hex_run_rejected() -> None:
+    """Boundary: a 17-char contiguous hex run is the smallest rejected value."""
+    with pytest.raises(ValueError, match="possible private key leak"):
+        _safe_verdict(recommendation="see: " + "0" * 17)
+
+
+def test_recommendation_with_exact_16_char_hex_run_accepted() -> None:
+    """Boundary: exactly 16 contiguous hex chars is allowed."""
     v = _safe_verdict(recommendation="hint: 0123456789abcdef")
     assert "0123456789abcdef" in v.recommendation
 
 
-def test_finding_with_long_hex_rejected_at_literal_check() -> None:
-    """Even if the literal type check were bypassed, hex-char count catches it."""
-    # The Literal check fires first for invalid finding names. To exercise the
-    # hex-count check on `finding`, we'd need a long-hex-but-also-valid Literal
-    # — which doesn't exist by design. So we only test recommendation here.
-    pass
+def test_recommendation_two_short_hex_runs_separated_by_non_hex_accepted() -> None:
+    """Two 16-char hex runs separated by a space carry no contiguous 17-run."""
+    v = _safe_verdict(recommendation="0123456789abcdef DEADBEEFCAFEBABE")
+    assert "0123456789abcdef" in v.recommendation
+
+
+@pytest.mark.parametrize(
+    "rec",
+    [
+        # Realistic recommendations that contain many incidental a-f letters
+        # but no 17-char hex run. These regressed under the old total-count
+        # check (the longest, 172 chars / 52 incidental hex chars, failed).
+        (
+            "Move funds to a freshly-generated wallet immediately. The detected "
+            "r-collision means anyone watching the chain can derive your private "
+            "key from public signature data alone."
+        ),
+        (
+            "Generate a new seed in an audited wallet (Sparrow, Bitcoin Core 25+, "
+            "Electrum 4.5+) and migrate the balance before the attacker re-uses "
+            "the recovered key."
+        ),
+        (
+            "Brainwallet phrase detected: change to a fresh BIP-39 seed from a "
+            "secure source, then move funds. Do not re-use the same passphrase "
+            "anywhere else, including for derived addresses."
+        ),
+        # Long form using a-f heavy English words
+        (
+            "Suspicious entropy detected: aborted, bad fold cafe, decade. "
+            "Recommendation: defer further deposits until a clean seed is "
+            "available."
+        ),
+    ],
+)
+def test_realistic_recommendation_accepted(rec: str) -> None:
+    """Regression: the old total-hex-count check rejected real recommendations.
+    The contiguous-run check accepts them while still rejecting privkey-shaped
+    hex leaks (covered by ``test_recommendation_with_long_hex_rejected``).
+    """
+    v = _safe_verdict(recommendation=rec)
+    assert v.recommendation == rec
+
+
+# Note: we don't test the hex-run check on ``finding`` because the Literal
+# type check fires first for any invalid value, and no valid Finding literal
+# contains a 17-char hex run by design.
+
+
+# ---------------------------------------------------------------------------
+# 7b. audit_id must be 36-char dashed UUID, non-nil — closes the channel
+#     where a 32-/48-hex slice of a private key impersonates an audit_id.
+#     ``uuid.UUID(s)`` alone accepts the 32-hex form, which is exactly the
+#     shape a 32-byte secret half takes; canonical-form check forbids that.
+# ---------------------------------------------------------------------------
+def test_audit_id_valid_uuid_with_dashes_accepted() -> None:
+    v = _safe_verdict(audit_id="11111111-2222-3333-4444-555555555555")
+    assert v.audit_id == "11111111-2222-3333-4444-555555555555"
+
+
+def test_audit_id_uuid_hex_form_rejected() -> None:
+    """The 32-hex no-dash form is rejected: it is precisely the shape a
+    32-byte private-key slice takes, which is the bypass we close here."""
+    with pytest.raises(ValueError, match="36-char dashed non-nil UUID"):
+        _safe_verdict(audit_id="11111111222233334444555555555555")
+
+
+def test_audit_id_nil_uuid_rejected() -> None:
+    """The all-zero UUID is the conventional placeholder; real audits must
+    have a unique id, so reject it as a sentinel that should never reach
+    the audit chain."""
+    with pytest.raises(ValueError, match="36-char dashed non-nil UUID"):
+        _safe_verdict(audit_id="00000000-0000-0000-0000-000000000000")
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        # Privkey-shape: 32 hex no-dash form (the bypass before this fix)
+        "deadbeefcafebabe1234567890abcdef",
+        # Privkey-shape: 48 hex
+        "deadbeefcafebabe1234567890abcdefdeadbeefcafebabe",
+        # Right length, no dashes
+        "11111111222233334444555555555555aaaa",
+        # Right length, wrong dash positions
+        "1111111-12222-3333-4444-5555555555555",
+        # 32 chars of non-hex
+        "gggggggggggggggggggggggggggggggg",
+        # Random non-UUID string
+        "not-a-uuid",
+        # Empty
+        "",
+        # Almost-UUID with wrong group count
+        "11111111-2222-3333-4444",
+        # URN form — not the canonical dashed form
+        "urn:uuid:11111111-2222-3333-4444-555555555555",
+        # Brace form
+        "{11111111-2222-3333-4444-555555555555}",
+    ],
+)
+def test_audit_id_invalid_uuid_rejected(bad: str) -> None:
+    with pytest.raises(ValueError, match="36-char dashed non-nil UUID"):
+        _safe_verdict(audit_id=bad)
+
+
+def test_audit_id_non_str_rejected() -> None:
+    """A bytes / int / None passed via ``type: ignore`` must be rejected
+    rather than crashing the validator (same channel: audit_id is the only
+    free-form string field besides ``recommendation``/``finding``)."""
+    with pytest.raises(ValueError, match="36-char dashed non-nil UUID"):
+        _safe_verdict(audit_id=12345)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="36-char dashed non-nil UUID"):
+        _safe_verdict(audit_id=b"11111111-2222-3333-4444-555555555555")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# 7c. Subclassing is forbidden — a subclass overriding ``__post_init__``
+#     would bypass every leak-prevention check.
+# ---------------------------------------------------------------------------
+def test_cannot_subclass_verdict_without_key() -> None:
+    with pytest.raises(TypeError, match="VerdictWithoutKey is @final"):
+
+        class _Evil(VerdictWithoutKey):
+            pass
+
+
+def test_cannot_subclass_via_type_metaclass() -> None:
+    """``type(name, bases, dict)`` is the dynamic equivalent of ``class X(Base)``;
+    ``__init_subclass__`` fires for both."""
+    with pytest.raises(TypeError, match="VerdictWithoutKey is @final"):
+        type("DynamicEvil", (VerdictWithoutKey,), {})
 
 
 # ---------------------------------------------------------------------------
@@ -289,3 +473,76 @@ def test_verdict_equality() -> None:
     assert a == b
     c = _safe_verdict(confidence=0.5)
     assert a != c
+
+
+def test_verdict_hashable_and_consistent_with_eq() -> None:
+    """Frozen dataclass is hashable; equal verdicts must have equal hashes
+    so they behave correctly in dict / set."""
+    a = _safe_verdict()
+    b = _safe_verdict()
+    assert hash(a) == hash(b)
+    assert {a, b} == {a}
+
+
+def test_verdict_deepcopy_roundtrip() -> None:
+    """``copy.deepcopy`` of a frozen-slots dataclass goes through the
+    pickle protocol, which goes through ``__init__`` / ``__post_init__``;
+    a deep copy of a valid verdict must reconstruct as equal."""
+    import copy
+
+    v = _safe_verdict(
+        status="VULNERABLE",
+        finding="r_collision",
+        key_fingerprint="abcdef0123456789",
+        recommendation="Move funds.",
+        evidence_refs=("a" * 64, "b" * 64),
+    )
+    clone = copy.deepcopy(v)
+    assert clone == v
+    assert clone is not v
+
+
+def test_to_public_json_preserves_field_values() -> None:
+    """Pin per-field value preservation: the allowlist test only checks
+    the *set of keys*, so a refactor that swaps two fields' values would
+    pass it. Verify that each field round-trips its value."""
+    v = _safe_verdict(
+        status="VULNERABLE",
+        finding="r_collision",
+        confidence=0.87,
+        key_fingerprint="abcdef0123456789",
+        recommendation="Move funds now.",
+        evidence_refs=("a" * 64, "b" * 64),
+        checks_performed=("milk_sad", "randstorm"),
+    )
+    pub = v.to_public_json()
+    assert pub["address"] == "bc1qexample0000000000000000000000000000000"
+    assert pub["status"] == "VULNERABLE"
+    assert pub["finding"] == "r_collision"
+    assert pub["confidence"] == 0.87
+    assert pub["key_fingerprint"] == "abcdef0123456789"
+    assert pub["recommendation"] == "Move funds now."
+    assert pub["evidence_refs"] == ["a" * 64, "b" * 64]
+    assert pub["audit_id"] == "11111111-1111-1111-1111-111111111111"
+    assert pub["checks_performed"] == ["milk_sad", "randstorm"]
+
+
+def test_to_public_json_preserves_none_key_fingerprint() -> None:
+    """``key_fingerprint=None`` survives the JSON dict (must NOT be
+    coerced to empty string or omitted)."""
+    v = _safe_verdict(key_fingerprint=None)
+    pub = v.to_public_json()
+    assert pub["key_fingerprint"] is None
+
+
+def test_first_violation_reported_when_multiple() -> None:
+    """The check order in ``__post_init__`` is part of the contract: the
+    *first* violation determines the error type. Pin this so a refactor
+    that reorders checks (e.g. moving UUID validation earlier) can't
+    silently change error semantics for callers parsing exception text."""
+    # confidence (#1) fires before audit_id (#8): pass invalid both
+    with pytest.raises(TypeError, match="confidence must be int or float"):
+        _safe_verdict(
+            confidence=True,  # type: ignore[arg-type]  # rejected at #1
+            audit_id="not-a-uuid",  # would also fail at #8
+        )

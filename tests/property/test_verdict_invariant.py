@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-import string
+import re
 
-from hypothesis import given
+import pytest
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from wallet_self_audit.verdict import VerdictWithoutKey
@@ -25,19 +26,29 @@ _STATUS_FINDING = [
 @given(
     confidence=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
     status_finding=st.sampled_from(_STATUS_FINDING),
-    n_evidence=st.integers(min_value=0, max_value=5),
+    txids=st.lists(
+        st.text(alphabet="0123456789abcdef", min_size=64, max_size=64),
+        min_size=0,
+        max_size=5,
+    ),
     n_checks=st.integers(min_value=0, max_value=5),
+    audit_uuid=st.uuids(version=4),
 )
 def test_valid_verdict_round_trips_through_json(
     confidence: float,
     status_finding: tuple[str, str],
-    n_evidence: int,
+    txids: list[str],
     n_checks: int,
+    audit_uuid: object,  # uuid.UUID, but typed as object for mypy/strict
 ) -> None:
-    """Random valid verdicts construct cleanly and JSON-roundtrip."""
+    """Random valid verdicts construct cleanly and JSON-roundtrip.
+
+    Real diversity here: each txid is independently generated 64-hex,
+    each audit_id is a fresh UUID v4 from ``hypothesis.strategies.uuids``.
+    The earlier version hard-coded the same txid and audit_id for every
+    case, so the strategy was effectively a parametrize with duplicates.
+    """
     status, finding = status_finding
-    txids = tuple(("a" * 64,) for _ in range(n_evidence))
-    txids_flat = tuple(t for tup in txids for t in tup)
     checks = tuple(f"check_{i}" for i in range(n_checks))
 
     v = VerdictWithoutKey(
@@ -47,8 +58,8 @@ def test_valid_verdict_round_trips_through_json(
         confidence=confidence,
         key_fingerprint=None if status == "SAFE" else "0123456789abcdef",
         recommendation="Test recommendation.",
-        evidence_refs=txids_flat,
-        audit_id="00000000-0000-0000-0000-000000000000",
+        evidence_refs=tuple(txids),
+        audit_id=str(audit_uuid),
         checks_performed=checks,
     )
 
@@ -57,17 +68,26 @@ def test_valid_verdict_round_trips_through_json(
     parsed = json.loads(serialized)
     assert parsed["status"] == status
     assert parsed["finding"] == finding
+    assert parsed["audit_id"] == str(audit_uuid)
+    assert parsed["evidence_refs"] == txids
 
 
-@given(s=st.text(alphabet=string.ascii_lowercase + string.digits, min_size=17))
-def test_recommendation_with_too_many_hex_rejected(s: str) -> None:
-    """If the random string happens to have > 16 hex chars, construction fails."""
-    import pytest
+_HEX_ALPHABET = "0123456789abcdef"
+_NON_HEX_ALPHABET = "ghijklmnopqrstuvwxyz .,!?-"
 
-    hex_chars = sum(1 for c in s if c in "0123456789abcdefABCDEF")
-    if hex_chars <= 16:
-        # Doesn't trigger the invariant; skip this case.
-        return
+
+@given(
+    prefix=st.text(alphabet=_NON_HEX_ALPHABET, max_size=40),
+    suffix=st.text(alphabet=_NON_HEX_ALPHABET, max_size=40),
+    hex_run=st.text(alphabet=_HEX_ALPHABET, min_size=17, max_size=128),
+)
+def test_recommendation_with_long_hex_run_rejected(prefix: str, suffix: str, hex_run: str) -> None:
+    """A 17+ char contiguous hex run anywhere in the string triggers rejection.
+
+    The leak-shape we defend against is a 32-byte private key rendered as
+    64 contiguous hex chars; any contiguous run > 16 is suspicious.
+    """
+    leak_string = f"{prefix}{hex_run}{suffix}"
 
     with pytest.raises(ValueError, match="possible private key leak"):
         VerdictWithoutKey(
@@ -76,8 +96,33 @@ def test_recommendation_with_too_many_hex_rejected(s: str) -> None:
             finding="none",
             confidence=0.99,
             key_fingerprint=None,
-            recommendation=s,
+            recommendation=leak_string,
             evidence_refs=(),
-            audit_id="00000000-0000-0000-0000-000000000000",
+            audit_id="11111111-1111-1111-1111-111111111111",
             checks_performed=(),
         )
+
+
+@given(
+    text=st.text(alphabet=_NON_HEX_ALPHABET + _HEX_ALPHABET, min_size=0, max_size=300),
+)
+def test_recommendation_with_no_long_hex_run_accepted(text: str) -> None:
+    """Strings without a 17-char contiguous hex run construct cleanly even
+    when they contain many incidental hex characters (a-f letters in normal
+    English words, etc.). This is the regression-test counterpart to the
+    earlier total-count check that wrongly rejected real recommendations.
+    """
+    assume(not re.search(r"[0-9a-fA-F]{17,}", text))
+
+    v = VerdictWithoutKey(
+        address="bc1qexample",
+        status="SAFE",
+        finding="none",
+        confidence=0.99,
+        key_fingerprint=None,
+        recommendation=text,
+        evidence_refs=(),
+        audit_id="11111111-1111-1111-1111-111111111111",
+        checks_performed=(),
+    )
+    assert v.recommendation == text
