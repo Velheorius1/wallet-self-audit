@@ -241,6 +241,162 @@ def doctor() -> None:
     )
 
 
+@app.command(name="prng-audit")
+def prng_audit_cmd(
+    addresses: list[str] = typer.Argument(  # noqa: B008
+        ...,
+        metavar="ADDRESS [ADDRESS ...]",
+        help="One or more known receive addresses for the wallet.",
+    ),
+    use_mnemonic: bool = typer.Option(
+        False,
+        "--mnemonic",
+        help=(
+            "Prompt for the BIP-39 mnemonic interactively (echo disabled). "
+            "Without this flag the audit runs in slower address-only mode."
+        ),
+    ),
+    vectors: str = typer.Option(
+        "milk_sad,randstorm,brainwallet",
+        "--vectors",
+        help="Comma-separated subset of vectors to run.",
+    ),
+    output: str = typer.Option(
+        "txt",
+        "--output",
+        help="Output format: txt | json | both.",
+    ),
+    milk_sad_start: int = typer.Option(
+        0,
+        "--milk-sad-start",
+        help="Milk Sad scan window start (Unix timestamp). 0 = default.",
+    ),
+    milk_sad_end: int = typer.Option(
+        0,
+        "--milk-sad-end",
+        help="Milk Sad scan window end (Unix timestamp). 0 = default.",
+    ),
+    randstorm_s0_max: int = typer.Option(
+        0,
+        "--randstorm-s0-max",
+        help="Randstorm scan upper bound on s0 (default 2**28).",
+    ),
+    workers: int = typer.Option(
+        0,
+        "--workers",
+        help="Number of multiprocessing workers (0 = auto, P-cores).",
+    ),
+) -> None:
+    """Run the PRNG audit (Milk Sad / Randstorm / Brainwallet).
+
+    Examples:
+
+      wsa prng-audit bc1qabc... --mnemonic --vectors milk_sad,brainwallet
+
+      wsa prng-audit bc1qabc... 1Foo... --output json
+    """
+    from wallet_self_audit.prng import milk_sad as _milk_sad
+    from wallet_self_audit.prng import randstorm as _randstorm
+    from wallet_self_audit.prng.owner_input import (
+        MnemonicHandle,
+        prompt_mnemonic,
+    )
+    from wallet_self_audit.vectors.prng_audit import (
+        PrngAuditConfig,
+        VectorName,
+        normalize_addresses,
+        run_prng_audit,
+    )
+
+    configure_logging()
+
+    # Parse vectors.
+    raw_vectors = [v.strip() for v in vectors.split(",") if v.strip()]
+    valid: tuple[VectorName, ...] = ("milk_sad", "randstorm", "brainwallet")
+    chosen: list[VectorName] = []
+    for v in raw_vectors:
+        if v not in valid:
+            console.print(f"[red]Unknown vector:[/red] {v!r} (valid: {', '.join(valid)})")
+            raise typer.Exit(code=2)
+        # ``v`` is narrowed to ``VectorName`` by the ``not in valid`` guard above.
+        chosen.append(v)
+    if not chosen:
+        console.print("[red]No vectors selected.[/red]")
+        raise typer.Exit(code=2)
+
+    # Build address set.
+    target_addresses = normalize_addresses(addresses)
+    primary = next(iter(target_addresses))  # any one — used as verdict.address
+
+    # Build window / range overrides.
+    ms_start = milk_sad_start or _milk_sad.MILK_SAD_WINDOW_DEFAULT_START
+    ms_end = milk_sad_end or _milk_sad.MILK_SAD_WINDOW_DEFAULT_END
+    rs_s0_max = randstorm_s0_max or _randstorm.RANDSTORM_DEFAULT_S0_RANGE[1]
+
+    # Optional mnemonic.
+    handle: MnemonicHandle | None = None
+    if use_mnemonic:
+        # Tier-3 confirmation: user must type the last 4 chars of the
+        # primary address before we open the mnemonic prompt.
+        confirm = primary[-4:]
+        try:
+            handle = prompt_mnemonic(confirm_phrase=confirm)
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=2) from exc
+
+    config = PrngAuditConfig(
+        address=primary,
+        target_addresses=target_addresses,
+        vectors=tuple(chosen),
+        milk_sad_window=(ms_start, ms_end),
+        randstorm_s0_range=(0, rs_s0_max),
+        n_workers=workers,
+    )
+
+    verdict = run_prng_audit(config, mnemonic_handle=handle)
+
+    if output in ("txt", "both"):
+        _print_verdict_txt(verdict)
+    if output in ("json", "both"):
+        console.print_json(json.dumps(verdict.to_public_json()))
+    if output not in ("txt", "json", "both"):
+        console.print(f"[red]Unknown --output:[/red] {output!r}")
+        raise typer.Exit(code=2)
+
+
+def _print_verdict_txt(verdict: object) -> None:
+    """Render a verdict as a human-readable Rich panel."""
+    from wallet_self_audit.verdict import VerdictWithoutKey
+
+    if not isinstance(verdict, VerdictWithoutKey):
+        console.print("[red]_print_verdict_txt: unexpected type[/red]")
+        return
+
+    color = {
+        "SAFE": "green",
+        "SUSPICIOUS": "yellow",
+        "VULNERABLE": "red",
+    }[verdict.status]
+
+    body = (
+        f"[bold {color}]{verdict.status}[/bold {color}]  finding=[cyan]{verdict.finding}[/cyan]\n"
+        f"address: [bold]{verdict.address}[/bold]\n"
+        f"confidence: {verdict.confidence:.2f}\n"
+        f"checks_performed: {', '.join(verdict.checks_performed)}\n"
+        f"audit_id: {verdict.audit_id}\n"
+        + (f"key_fingerprint: {verdict.key_fingerprint}\n" if verdict.key_fingerprint else "")
+        + f"\n{verdict.recommendation}"
+    )
+    console.print(
+        Panel(
+            body,
+            title="wsa prng-audit",
+            border_style=color,
+        )
+    )
+
+
 @app.command(name="version")
 def version_cmd() -> None:
     """Show version and exit."""
